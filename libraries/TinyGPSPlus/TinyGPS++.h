@@ -174,6 +174,7 @@ struct TinyGPSSpeed : TinyGPSDecimal
 struct TinyGPSCourse : public TinyGPSDecimal
 {
    double deg()      { return value() / 100.0; }
+   double rad()      { return M_PI / 180 * value() / 100.0; }
 };
 
 struct TinyGPSAltitude : TinyGPSDecimal

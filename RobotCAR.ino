@@ -2,7 +2,7 @@
 #include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
 #include <HMC5883L.h>
-#include<Servo.h>
+#include <Servo.h>
 #include <Wire.h>
 #include <SPI.h>
 // ================================================================
@@ -17,7 +17,7 @@
 
 
 //#define DEBUG_IMU
-//#define DEBUG_GPS
+#define DEBUG_GPS
 
 TinyGPSPlus GPS;
 MPU6050 IMU;
@@ -25,13 +25,16 @@ HMC5883L MAG;
 Madgwick AHRS;
 Servo FStr,PowUnit;
                                                                   /*座標系は安部先生の本に従う(右手系)*/
-float roll, pitch, yaw, rollDeg, pitchDeg, yawDeg;                /*ロール、ピッチ、ヨー角(rad,deg)*/
-float rollRt, pitchRt, yawRt, rollRtDeg, pitchRtDeg, yawRtDeg;    /*ロール、ピッチ、ヨーレート(rad/s,deg/s)*/
-float ax, ay, az;                                                 /*X,Y,Z加速度(m/s^2)*/
-float xPos,yPos,relAngle;                                         /*コース中心からの相対位置,角度*/
+VectorFloat rpyAngle;
+VectorFloat rpyRate;
+VectorFloat acc;                                                  /*X,Y,Z加速度(m/s^2)*/
+VectorFloat spd;
+VectorFloat dist;
+VectorFloat pos2D;
+float relAngle;                                                   /*コース中心からの相対位置,角度*/
 double heading, headingDeg;                                       /*方位(rad,deg)*/
 double gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
-double gpsLatDeg,gpsLonDeg;                                       /*GPS緯度・経度(deg)*/
+polVectorFloat3D gpsLatLon;                                       /*GPS緯度・経度(deg)*/
 float puPwm = 92;                                                 /*パワーユニットのPWM*/
 float fStrPwm = 90;                                               /*ステアリングのPWM*/
 bool started;
@@ -41,21 +44,16 @@ uint32_t timer = millis();
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
 
-
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
-float centerX;  /*コースの中心x*/
-float centerY;  /*コースの中心y*/
-float courseAngle; /*コースの中心XYの角度*/
-float pointKeepOutX[2] = {-20,20};    /*立ち入り禁止エリア設定x(前後)方向*/
-float pointKeepOutY[2] = {-10,10};    /*立ち入り禁止エリア設定y(横)方向*/
-float clippingPointLat[2] = {36.5680694580f,36.5679817199f};/*コースの緯度座標*/
-float clippingPointLon[2] = {139.99575805664f,139.99575805664f};/*コースの経度座標*/
-float clippingPointAlt[2] = {38.6,38.6};
-float clippingPointGeo[2] = {153,153};
-float clippingPointX[2];
-float clippingPointY[2];
+VectorFloat center;
+float courseAngle;                  /*コースの中心XYの角度*/
+VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
+polVectorFloat3D clippingPoint[2];
+float clippingPointAlt[2];
+float clippingPointGeo[2];
+VectorFloat clippingPoint2D[2];
 //VectorFloat startLatLon[2];
 //VectorFloat goalLatLon[2];
 
@@ -67,7 +65,6 @@ void setup()
 {
   Wire.begin();
   Serial.begin(115200);
-  Serial.flush();
   Serial1.begin(115200);
   IMU.setI2CMasterModeEnabled(false);
   IMU.setI2CBypassEnabled(true) ;
@@ -84,19 +81,21 @@ void setup()
   PowUnit.attach(2);
   SetCourseData();
   delay(1000);
-  //waitStartCommand();
+  Serial.flush();
+  waitStartCommand();
 }
 
 void Task10ms(void)
 {
     IMUupdate();
+    GPSupdate();
     IntegratedChassisControl();
     //GPSStrControl(0 ,90 * M_PI / 180, heading , 10  * M_PI / 180);
 }
 
 void Task100ms(void)
 {
-    GPSMAGupdate();
+
     //Serial.print(GPS.course.deg());
 }
 
@@ -105,47 +104,61 @@ void Task1000ms(void)
   //Serial.println(millis());
 }
 
-void GPSMAGupdate(void)
+void GPSupdate(void)
 {
-  int16_t mx, my, mz;    //  MAGnetometer raw values from HMC5883L
+    float sampleTime = 0.01f;
+    static uint32_t lastProcessTime;
+    lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
+    if(GPS.speed.isUpdated() && GPS.speed.isValid()){
+        gpsSpeedmps = GPS.speed.mps();
+      }
+    else{//GPS情報受信・更新できない間は縦加速度による速度補正
+        gpsSpeedmps += acc.x * sampleTime;
+      }
+    if(gpsSpeedmps > 0.5f && GPS.course.isUpdated() && GPS.course.isValid()){
+        heading = GPS.course.rad();
+      }
+    else{//GPS情報受信・更新できない・速度が低い間はヨーレートによる方位補正
+        heading -= rpyRate.z * sampleTime;
+        abs(heading) > 2 * M_PI ? heading = 0 : 0;
+      }
+    headingDeg = heading * 180 / M_PI;
+    relAngle = heading - courseAngle;
+    //FPSの緯度経度が受信・更新できた場合
     if(GPS.location.isUpdated() && GPS.location.isValid()){
-      gpsLatDeg = GPS.location.lat();
-      gpsLonDeg = GPS.location.lng();
-    }
+        gpsLatLon.t = GPS.location.lat();
+        gpsLatLon.p = GPS.location.lng();
+        pos2D = getRelPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
+      }
+    //GPSの緯度経度が受信・更新できない場合は速度・相対方位情報で位置修正
     else{
-      gpsLatDeg = 0.0f;
-      gpsLonDeg = 0.0f;
-    }
-    GPS.speed.isUpdated() && GPS.speed.isValid() ? gpsSpeedmps = GPS.speed.mps():0;
-    if(gpsSpeedmps > 0.5f){
-      GPS.course.isUpdated() && GPS.course.isValid() ? headingDeg = GPS.course.deg():0;
-      heading = headingDeg * 0.01745329251f;
-    }
-
+        pos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
+        pos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
+      }
 #ifdef DEBUG_GPS
-  Serial.print(gpsLatDeg,10);Serial.print(',');Serial.print(gpsLonDeg,11);Serial.print(',');Serial.print(heading,5);Serial.print(',');Serial.println(gpsSpeedmps);
+  Serial.print(pos2D.x);Serial.print(',');Serial.print(pos2D.y);Serial.print(',');
+  Serial.print(relAngle);Serial.print(',');Serial.println(gpsSpeedmps);
 #endif
-
   //Serial.print(blh2ecefx(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
   //Serial.print(",");
   //Serial.print(blh2ecefy(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
   //Serial.print(",");
   //Serial.println(blh2ecefz(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
-  xPos = getRelPositionx(gpsLatDeg, gpsLonDeg, GPS.altitude.meters(), GPS.geoid.meters(), centerX, centerY, courseAngle);
-  yPos = getRelPositiony(gpsLatDeg, gpsLonDeg, GPS.altitude.meters(), GPS.geoid.meters(), centerX, centerY, courseAngle);
-  relAngle = heading - courseAngle;
+
+  lastProcessTime = millis();
+
 }
 
 void IMUupdate(void)
 {
-    float gx, gy, gz;    //  Gyroscope raw values from MPU-6150
+    float gfx, gfy, gfz;    //  Gyroscope raw values from MPU-6150
     float afx,afy,afz;
     int aix, aiy, aiz;
     int gix, giy, giz;
-    int agx, agy, agz;
     float sampleTime = 0.01f;
     static uint32_t lastProcessTime;
+    VectorFloat rpyAngleDeg;
 
     lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
@@ -154,64 +167,43 @@ void IMUupdate(void)
     afx = convertRawAcceleration(aiy);
     afy = -convertRawAcceleration(aix);
     afz = convertRawAcceleration(aiz);
-    gx = convertRawGyro(giy);
-    gy = -convertRawGyro(gix);
-    gz = convertRawGyro(giz);
+    gfx = convertRawGyro(giy);
+    gfy = -convertRawGyro(gix);
+    gfz = convertRawGyro(giz);
 
-    AHRS.updateIMU(gx, gy, gz, afx, afy, afz);
+    AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
 
-    if(rollDeg){rollRtDeg = LimitValue((AHRS.getRoll()-rollDeg)/sampleTime,1000.0f,-1000.0f);}
-    if(pitchDeg){pitchRtDeg = LimitValue((AHRS.getPitch()-pitchDeg)/sampleTime,1000.0f,-1000.0f);}
-    if(yawDeg){yawRtDeg = LimitValue((AHRS.getYaw()-yawDeg)/sampleTime,1000.0f,-1000.0f);}
+    if(rpyAngle.calcRad2Deg().x){rpyRate.x = LimitValue((AHRS.getRoll()-rpyAngle.calcRad2Deg().x)/sampleTime,1000.0f,-1000.0f) * M_PI/180;}
+    if(rpyAngle.calcRad2Deg().y){rpyRate.y = LimitValue((AHRS.getPitch()-rpyAngle.calcRad2Deg().y)/sampleTime,1000.0f,-1000.0f) * M_PI/180;}
+    if(rpyAngle.calcRad2Deg().z){rpyRate.z = LimitValue((AHRS.getYaw()-rpyAngle.calcRad2Deg().z)/sampleTime,1000.0f,-1000.0f) * M_PI/180;}
 
-    rollRt = rollRtDeg * 0.01745329251f;
-    pitchRt = pitchRtDeg * 0.01745329251f;
-    yawRt = yawRtDeg * 0.01745329251f;
+    rpyAngle.x = AHRS.getRoll() * M_PI/180;   //ロール角
+    rpyAngle.y = AHRS.getPitch() * M_PI/180;  //ピッチ角
+    rpyAngle.z = AHRS.getYaw() * M_PI/180;    //ヨー角
 
-    //IMUによる方位の補正
-    heading -= yawRt * sampleTime;
-    headingDeg -= yawRtDeg * sampleTime;
-
-    rollDeg = AHRS.getRoll();
-    pitchDeg = AHRS.getPitch();
-    yawDeg = AHRS.getYaw();
-
-    roll = rollDeg * 0.01745329251f;
-    pitch = pitchDeg * 0.01745329251f;
-    yaw = yawDeg * 0.01745329251f;
-
-    ax = convertRawAcceleration(aiy + (16384 * sin(pitch) * cos(roll)));  //重力の影響を除外した加速度x
-    ay = convertRawAcceleration(-aix - (16384 * cos(pitch) * sin(roll))); //重力の影響を除外した加速度y
-    az = convertRawAcceleration(aiz - (16384 * cos(pitch) * cos(roll)));  //重力の影響を除外した加速度z
-
-    //IMUによる速度の補正
-    gpsSpeedmps += ax * sampleTime;
-
-    //IMUよる位置の補正
-    xPos += gpsSpeedmps * cos(relAngle) * sampleTime;
-    yPos += gpsSpeedmps * sin(relAngle) * sampleTime;
-
-    Serial.print(xPos);Serial.print(",");Serial.print(yPos);Serial.print(",");Serial.println(relAngle);
+    acc.x = convertRawAcceleration(aiy + (16384 * sin(rpyAngle.y) * cos(rpyAngle.x)));  //重力の影響を除外した加速度x
+    acc.y = convertRawAcceleration(-aix - (16384 * cos(rpyAngle.y) * sin(rpyAngle.x))); //重力の影響を除外した加速度y
+    acc.z = convertRawAcceleration(aiz - (16384 * cos(rpyAngle.y) * cos(rpyAngle.x)));  //重力の影響を除外した加速度z
 
 
 #ifdef DEBUG_IMU
     Serial.print("Ax: ");
-    Serial.print(ax);
+    Serial.print(acc.x);
     Serial.print(" ");
     Serial.print("Ay: ");
-    Serial.print(ay);
+    Serial.print(acc.y);
     Serial.print(" ");
     Serial.print("Az: ");
-    Serial.print(az);
-    Serial.print(" ");
-    Serial.print("yaw: ");
-    Serial.print(yawRtDeg);
-    Serial.print(" ");
-    Serial.print("pitch: ");
-    Serial.print(pitchRtDeg);
+    Serial.print(acc.z);
     Serial.print(" ");
     Serial.print("roll: ");
-    Serial.println(rollRtDeg);
+    Serial.print(rpyAngle.x);
+    Serial.print(" ");
+    Serial.print("pitch: ");
+    Serial.print(rpyAngle.y);
+    Serial.print(" ");
+    Serial.print("yaw: ");
+    Serial.println(rpyAngle.z);
 #endif
     lastProcessTime = millis();
 }
@@ -236,87 +228,75 @@ void waitStartCommand(void)
 
 void SetCourseData(void)
 {
-  for(uint8_t i=0;i<2;i++){
-    clippingPointX[i] = blh2ecefx(clippingPointLat[i],clippingPointLon[i],clippingPointAlt[i],clippingPointGeo[i]);
-    clippingPointY[i] = blh2ecefy(clippingPointLat[i],clippingPointLon[i],clippingPointAlt[i],clippingPointGeo[i]);
-  }
+  /*********コースの座標を入力*********/
+  clippingPoint[0].t = 36.5680694580f;    clippingPoint[1].t = 36.5679817199f;    /*緯度設定*/
+  clippingPoint[0].p = 139.99575805664f;  clippingPoint[1].p = 139.99575805664f;  /*経度設定*/
 
-  courseAngle = atan((clippingPointY[1]-clippingPointY[0])/(clippingPointX[1]-clippingPointX[0]));
-
-  for(uint8_t i=0;i<2;i++){
-    float clippingPointXbuf = clippingPointX[i]*cos(-courseAngle) - clippingPointY[i]*sin(-courseAngle);
-    float clippingPointYbuf = clippingPointX[i]*sin(-courseAngle) + clippingPointY[i]*cos(-courseAngle);
-    clippingPointX[i] = clippingPointXbuf;
-    clippingPointY[i] = clippingPointYbuf;
-  }
-
-  centerX = (clippingPointX[1]-clippingPointX[0])*0.5 + clippingPointX[0];
-  centerY = (clippingPointY[1]-clippingPointY[0])*0.5 + clippingPointY[0];
+  clippingPointAlt[0] = 153;  clippingPointAlt[1] = 153;        /*標高設定*/
+  clippingPointGeo[0] = 38.6; clippingPointGeo[1] = 38.6;       /*ジオイド高設定*/
+  /*******立ち入り禁止エリア設定*******/
+  pointKeepOut[0].x = -20;  pointKeepOut[1].x = 20;            /*立ち入り禁止エリア設定x(前後)方向*/
+  pointKeepOut[0].y = -20;  pointKeepOut[1].y = 20;            /*立ち入り禁止エリア設定y(横)方向*/
+  /********************************/
+  VectorFloat buf0[2],buf1[2];
 
   for(uint8_t i=0;i<2;i++){
-    clippingPointX[i] = clippingPointX[i] - centerX;
-    clippingPointY[i] = clippingPointY[i] - centerY;
+    buf0[i] = blh2ecef(clippingPoint[i],clippingPointAlt[i],clippingPointGeo[i]);
+    }
+
+  courseAngle = atan((buf0[1].y-buf0[0].y)/(buf0[1].x-buf0[0].x));
+
+  for(uint8_t i=0;i<2;i++){
+    buf1[i].x = buf0[i].x * cos(-courseAngle) - buf0[i].y * sin(-courseAngle);
+    buf1[i].y = buf0[i].x * sin(-courseAngle) + buf0[i].y * cos(-courseAngle);
+    }
+
+  center.x = (buf1[1].x-buf1[0].x)*0.5 + buf1[0].x;
+  center.y = (buf1[1].y-buf1[0].y)*0.5 + buf1[0].y;
+
+  for(uint8_t i=0;i<2;i++){
+    clippingPoint2D[i].x = buf1[i].x - center.x;
+    clippingPoint2D[i].y = buf1[i].y - center.y;
   }
-  Serial.print("CP0:");Serial.print(clippingPointX[0]);Serial.print(",");Serial.println(clippingPointY[0]);
-  Serial.print("CP1:");Serial.print(clippingPointX[1]);Serial.print(",");Serial.println(clippingPointY[1]);
-  Serial.print("CenterX:");Serial.print(centerX);
-  Serial.print("CenterY:");Serial.println(centerY);
+
+  Serial.print("CP0:");Serial.print(clippingPoint2D[0].x);Serial.print(",");Serial.println(clippingPoint2D[0].y);
+  Serial.print("CP1:");Serial.print(clippingPoint2D[1].x);Serial.print(",");Serial.println(clippingPoint2D[1].y);
+  Serial.print("CenterX:");Serial.print(center.x);
+  Serial.print("CenterY:");Serial.println(center.y);
 
 }
 
-//コース中心からの相対X距離を求める
-float getRelPositionx(float lat, float lon, float alt, float geoid, float centerX, float centerY, float courseAngle)
+//コース中心からの相対距離を2D直交座標系で求める
+VectorFloat getRelPosition(polVectorFloat3D LatLon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
-  float bufx,bufy,relPosx,relPosy;
-  bufx = blh2ecefx(lat,lon,alt,geoid);
-  bufy = blh2ecefy(lat,lon,alt,geoid);
+  VectorFloat buf0,relPos2D;
+  buf0 = blh2ecef(LatLon,alt,geoid);
 
-  relPosx = bufx*cos(-courseAngle) - bufy*sin(-courseAngle);
-  relPosy = bufx*sin(-courseAngle) + bufy*cos(-courseAngle);
+  relPos2D.x = buf0.x*cos(-courseAngle) - buf0.y*sin(-courseAngle);
+  relPos2D.y = buf0.x*sin(-courseAngle) + buf0.y*cos(-courseAngle);
 
-  relPosx -= centerX;
-  relPosy -= centerY;
+  relPos2D.x -= center.x;
+  relPos2D.y -= center.y;
 
-  return relPosx;
+  return relPos2D;
 }
 
-//コース中心からの相対Y距離を求める
-float getRelPositiony(float lat, float lon, float alt, float geoid, float centerX, float centerY, float courseAngle)
+VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 {
-  float bufx,bufy,relPosx,relPosy;
-  bufx = blh2ecefx(lat,lon,alt,geoid);
-  bufy = blh2ecefy(lat,lon,alt,geoid);
-
-  relPosx = bufx*cos(-courseAngle) - bufy*sin(-courseAngle);
-  relPosy = bufx*sin(-courseAngle) + bufy*cos(-courseAngle);
-
-  relPosx -= centerX;
-  relPosy -= centerY;
-
-  return relPosy;
-}
-
-
-float blh2ecefx(float lat, float lon, float alt, float geoid)
-{
-  return (NN(lat)+(alt+geoid))*cos(lat*M_PI/180)*cos(lon*M_PI/180);
-}
-float blh2ecefy(float lat, float lon, float alt, float geoid)
-{
-  return (NN(lat)+(alt+geoid))*cos(lat*M_PI/180)*sin(lon*M_PI/180);
-}
-float blh2ecefz(float lat, float lon, float alt, float geoid)
-{
-  return (NN(lat)*(1-E2)+(alt+geoid))*sin(lat*M_PI/180);
+  VectorFloat ecef;
+  ecef.x = (NN(LatLon.t)+(alt+geoid))*cos(LatLon.t*M_PI/180)*cos(LatLon.p*M_PI/180);
+  ecef.y = (NN(LatLon.t)+(alt+geoid))*cos(LatLon.t*M_PI/180)*sin(LatLon.p*M_PI/180);
+  ecef.z = (NN(LatLon.t)*(1-E2)+(alt+geoid))*sin(LatLon.t*M_PI/180);
+  return ecef;
 }
 
 /*************ICC***************/
 
 void IntegratedChassisControl(void)
 {
-  if(pointKeepOutX[0] < xPos && pointKeepOutX[1] > xPos && pointKeepOutY[0] < YPos && pointKeepOutY[1] > YPos){
+  if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
       //Serial.println("run");
-      puPwm = 80;
+      //puPwm = 80;
     }
   else{
       //Serial.print("brake");
@@ -403,7 +383,7 @@ uint8_t ConstTurn(bool isGoStraight, int8_t direction, float turnRadius, float t
 
   /*加減速制御*/
   /*予想旋回G,実測横GがmaxAy以上の場合は速度を下げる*/
-  if(estAy > maxAy || abs(ay) > maxAy){
+  if(estAy > maxAy || abs(acc.y) > maxAy){
     puPwm += 0.5;
   }
   else if(puPwm > 90){       /*バック防止*/
@@ -412,10 +392,10 @@ uint8_t ConstTurn(bool isGoStraight, int8_t direction, float turnRadius, float t
 
   /*旋回制御*/
   if(!isGoStraight){
-      if(estAy < maxAy || abs(ay) < maxAy || estYawRt < abs(yawRt)){
+      if(estAy < maxAy || abs(acc.y) < maxAy || estYawRt < abs(rpyRate.z)){
         fStrPwm += (float)direction * 0.5;
       }
-      else if(estYawRt > abs(yawRt)){
+      else if(estYawRt > abs(rpyRate.z)){
         fStrPwm -= (float)direction * 0.2;   /*ヨーレートが過剰な場合はカウンタを当てる*/
       }
     }
@@ -428,7 +408,7 @@ void BrakeCtrl(float targetSpeed, float nowSpeedmps, float maxDecelAx)
 {
 if(targetSpeed){
     if(nowSpeedmps > targetSpeed){
-      ax > - maxDecelAx ? puPwm += 0.5 : puPwm -= 0.05 ;
+      acc.x > - maxDecelAx ? puPwm += 0.5 : puPwm -= 0.05 ;
     }
     else if(puPwm > 92){                     //バック防止
       puPwm = 92;
@@ -436,7 +416,7 @@ if(targetSpeed){
   }
 else{                                        //停止したい場合
   if(nowSpeedmps > 0.5){
-    ax > - maxDecelAx ? puPwm += 1.0 : puPwm -= 0.05 ;
+    acc.x > - maxDecelAx ? puPwm += 1.0 : puPwm -= 0.05 ;
   }
   else if(puPwm > 92){                     //バック防止
     puPwm = 92;

@@ -38,14 +38,14 @@ class Quaternion {
         float x;
         float y;
         float z;
-        
+
         Quaternion() {
             w = 1.0f;
             x = 0.0f;
             y = 0.0f;
             z = 0.0f;
         }
-        
+
         Quaternion(float nw, float nx, float ny, float nz) {
             w = nw;
             x = nx;
@@ -69,11 +69,11 @@ class Quaternion {
         Quaternion getConjugate() {
             return Quaternion(w, -x, -y, -z);
         }
-        
+
         float getMagnitude() {
             return sqrt(w*w + x*x + y*y + z*z);
         }
-        
+
         void normalize() {
             float m = getMagnitude();
             w /= m;
@@ -81,7 +81,7 @@ class Quaternion {
             y /= m;
             z /= m;
         }
-        
+
         Quaternion getNormalized() {
             Quaternion r(w, x, y, z);
             r.normalize();
@@ -100,7 +100,7 @@ class VectorInt16 {
             y = 0;
             z = 0;
         }
-        
+
         VectorInt16(int16_t nx, int16_t ny, int16_t nz) {
             x = nx;
             y = ny;
@@ -117,19 +117,19 @@ class VectorInt16 {
             y /= m;
             z /= m;
         }
-        
+
         VectorInt16 getNormalized() {
             VectorInt16 r(x, y, z);
             r.normalize();
             return r;
         }
-        
+
         void rotate(Quaternion *q) {
             // http://www.cprogramming.com/tutorial/3d/quaternions.html
             // http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/transforms/index.htm
             // http://content.gpwiki.org/index.php/OpenGL:Tutorials:Using_Quaternions_to_represent_rotation
             // ^ or: http://webcache.googleusercontent.com/search?q=cache:xgJAp3bDNhQJ:content.gpwiki.org/index.php/OpenGL:Tutorials:Using_Quaternions_to_represent_rotation&hl=en&gl=us&strip=1
-        
+
             // P_out = q * P_in * conj(q)
             // - P_out is the output vector
             // - q is the orientation quaternion
@@ -167,7 +167,7 @@ class VectorFloat {
             y = 0;
             z = 0;
         }
-        
+
         VectorFloat(float nx, float ny, float nz) {
             x = nx;
             y = ny;
@@ -184,13 +184,22 @@ class VectorFloat {
             y /= m;
             z /= m;
         }
-        
+        void rad2Deg() {
+            x *= 180/M_PI;
+            y *= 180/M_PI;
+            z *= 180/M_PI;
+        }
+        void deg2Rad() {
+            x *= M_PI/180;
+            y *= M_PI/180;
+            z *= M_PI/180;
+        }
         VectorFloat getNormalized() {
             VectorFloat r(x, y, z);
             r.normalize();
             return r;
         }
-        
+
         void rotate(Quaternion *q) {
             Quaternion p(0, x, y, z);
 
@@ -205,11 +214,51 @@ class VectorFloat {
             y = p.y;
             z = p.z;
         }
-
+        VectorFloat calcRad2Deg() {
+            VectorFloat r(x, y, z);
+            r.rad2Deg();
+            return r;
+        }
+        VectorFloat calcDeg2Rad() {
+            VectorFloat r(x, y, z);
+            r.deg2Rad();
+            return r;
+        }
         VectorFloat getRotated(Quaternion *q) {
             VectorFloat r(x, y, z);
-            r.rotate(q);
-            return r;
+        }
+
+
+};
+
+class polVectorFloat2D {
+    public:
+        float r;
+        float t;
+        polVectorFloat2D() {
+            r = 0;
+            t = 0;
+        }
+        polVectorFloat2D(float nr, float nt, float np) {
+            r = nr;
+            t = nt;
+        }
+};
+
+class polVectorFloat3D {
+    public:
+        float r;
+        float t;
+        float p;
+        polVectorFloat3D() {
+            r = 0;
+            t = 0;
+            p = 0;
+        }
+        polVectorFloat3D(float nr, float nt, float np) {
+            r = nr;
+            t = nt;
+            p = np;
         }
 };
 
