@@ -65,7 +65,7 @@ void setup()
 {
   Wire.begin();
   Serial.begin(115200);
-  Serial1.begin(115200);
+  Serial1.begin(38400);
   IMU.setI2CMasterModeEnabled(false);
   IMU.setI2CBypassEnabled(true) ;
   IMU.setSleepEnabled(false);
@@ -108,6 +108,7 @@ void GPSupdate(void)
 {
     float sampleTime = 0.01f;
     static uint32_t lastProcessTime;
+
     lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
     if(GPS.speed.isUpdated() && GPS.speed.isValid()){
@@ -127,12 +128,13 @@ void GPSupdate(void)
       }
     headingDeg = heading * 180 / M_PI;
     relAngle = RoundRad(heading - courseAngle);
-    //FPSの緯度経度が受信・更新できた場合
+    //GPSの緯度経度が受信・更新できた場合
     if(GPS.location.isUpdated() && GPS.location.isValid()){
-        gpsLatLon.t = GPS.location.lat();
-        gpsLatLon.p = GPS.location.lng();
-        pos2D = getRelPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
-      }
+        polVectorFloat3D gpsLatLonPre = gpsLatLon;                                   //比較用に前回値を記憶するバッファ
+        gpsLatLonPre.t != GPS.location.lat() ? gpsLatLon.t = GPS.location.lat() : 0; //緯度の値が前回値から変化している場合のみ更新
+        gpsLatLonPre.p != GPS.location.lng() ? gpsLatLon.p = GPS.location.lng() : 0; //経度の値が前回値から変化している場合のみ更新
+        pos2D = GetEstPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle); //推定位置取得(GPSの最新値と速度・方位補完データを比較演算)
+        }
     //現在、GPSの緯度経度の受信・更新できないが、前回値が入力されている場合は速度・相対方位情報で位置修正
     else if(gpsLatLon.t && gpsLatLon.p){
         pos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
@@ -142,10 +144,10 @@ void GPSupdate(void)
         pos2D = getRelPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
     }
 #ifdef DEBUG_GPS
-Serial.print("Lat:");Serial.print(gpsLatLon.t);Serial.print("Lon:");Serial.print(gpsLatLon.p);
-Serial.print("Alt:");Serial.print(GPS.altitude.meters());Serial.print("Geo:");Serial.print(GPS.geoid.meters());
-Serial.print("PosX:");Serial.print(pos2D.x);Serial.print("PosY:");Serial.print(pos2D.y);Serial.print("RelAngle:");
-Serial.print(relAngle);Serial.print("Speed:");Serial.println(gpsSpeedmps);
+Serial.print("Lat:,");Serial.print(gpsLatLon.t,8);Serial.print(",Lon:,");Serial.print(gpsLatLon.p,8);
+Serial.print(",Alt:,");Serial.print(GPS.altitude.meters());Serial.print(",Geo:,");Serial.print(GPS.geoid.meters());
+Serial.print(",PosX:,");Serial.print(pos2D.x);Serial.print(",PosY:,");Serial.print(pos2D.y);Serial.print(",RelAngle:,");
+Serial.print(relAngle);Serial.print(",Speed:,");Serial.println(gpsSpeedmps);
 #endif
   //Serial.print(blh2ecefx(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
   //Serial.print(",");
@@ -274,10 +276,10 @@ void SetCourseData(void)
 }
 
 //コース中心からの相対距離を2D直交座標系で求める
-VectorFloat getRelPosition(polVectorFloat3D LatLon, float alt, float geoid, VectorFloat center, float courseAngle)
+VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
   VectorFloat buf0,relPos2D;
-  buf0 = blh2ecef(LatLon,alt,geoid);
+  buf0 = blh2ecef(latlon,alt,geoid);
 
   relPos2D.x = buf0.x*cos(-courseAngle) - buf0.y*sin(-courseAngle);
   relPos2D.y = buf0.x*sin(-courseAngle) + buf0.y*cos(-courseAngle);
@@ -285,10 +287,42 @@ VectorFloat getRelPosition(polVectorFloat3D LatLon, float alt, float geoid, Vect
   relPos2D.x -= center.x;
   relPos2D.y -= center.y;
 
-  //Serial.print(relPos2D.x);Serial.print(",");Serial.println(relPos2D.y);
-
   return relPos2D;
 }
+
+/*GPSデータが更新される間の速度・方位情報から次のGPSデータを予測する*/
+VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
+{
+  float sampleTime = 0.01f;
+  static uint32_t lastProcessTime;
+  static polVectorFloat3D lastLatLon;           //最後に更新したGPSデータ
+  static VectorFloat deltaPos2D;                //GPS更新する間に移動した距離(X,Y)
+  static VectorFloat updatedPos2D;              //出力用の距離データ(X,Y)
+  VectorFloat estPos2D;
+
+  lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
+
+  if(lastLatLon.t != latlon.t || lastLatLon.p != latlon.p){
+    updatedPos2D = getRelPosition(latlon,alt,geoid,center,courseAngle);
+    estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x;
+    estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y;
+    if(estPos2D.getMagnitude() - updatedPos2D.getMagnitude() > 2){     //2m以上の差があれば速度・方位情報から補正したデータを採用
+      updatedPos2D = estPos2D;
+      }
+    deltaPos2D.x = 0;
+    deltaPos2D.y = 0;
+    }
+  else{
+    deltaPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
+    deltaPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
+    updatedPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
+    updatedPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
+    }
+  lastLatLon = latlon;
+  lastProcessTime = millis();
+  return updatedPos2D;
+}
+
 
 VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 {
