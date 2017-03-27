@@ -306,7 +306,7 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
     updatedPos2D = getRelPosition(latlon,alt,geoid,center,courseAngle);
     estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x;
     estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y;
-    if(estPos2D.getMagnitude() - updatedPos2D.getMagnitude() > 2){     //2m以上の差があれば速度・方位情報から補正したデータを採用
+    if(abs(estPos2D.getMagnitude() - updatedPos2D.getMagnitude()) < 3){     //3m以上の差があれば有意な差とみなし、GPSデータを採用
       updatedPos2D = estPos2D;
       }
     deltaPos2D.x = 0;
