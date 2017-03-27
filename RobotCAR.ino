@@ -311,6 +311,7 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
       }
     deltaPos2D.x = 0;
     deltaPos2D.y = 0;
+    lastLatLon = latlon;
     }
   else{
     deltaPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
@@ -318,7 +319,6 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
     updatedPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
     updatedPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
     }
-  lastLatLon = latlon;
   lastProcessTime = millis();
   return updatedPos2D;
 }
