@@ -128,21 +128,16 @@ void GPSupdate(void)
       }
     headingDeg = heading * 180 / M_PI;
     relAngle = RoundRad(heading - courseAngle);
-    //GPSの緯度経度が受信・更新できた場合
+    //GPSの緯度経度
     if(GPS.location.isUpdated() && GPS.location.isValid()){
         polVectorFloat3D gpsLatLonPre = gpsLatLon;                                   //比較用に前回値を記憶するバッファ
         gpsLatLonPre.t != GPS.location.lat() ? gpsLatLon.t = GPS.location.lat() : 0; //緯度の値が前回値から変化している場合のみ更新
         gpsLatLonPre.p != GPS.location.lng() ? gpsLatLon.p = GPS.location.lng() : 0; //経度の値が前回値から変化している場合のみ更新
         pos2D = GetEstPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle); //推定位置取得(GPSの最新値と速度・方位補完データを比較演算)
         }
-    //現在、GPSの緯度経度の受信・更新できないが、前回値が入力されている場合は速度・相対方位情報で位置修正
-    else if(gpsLatLon.t && gpsLatLon.p){
-        pos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
-        pos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
-      }
-    else{//現在、GPSの緯度経度の受信・更新できないが、GPSの緯度経度が初期値の場合は受信するまで待つ
-        pos2D = getRelPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
-    }
+    else{
+        pos2D = GetEstPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
+        }
 #ifdef DEBUG_GPS
 Serial.print("Lat:,");Serial.print(gpsLatLon.t,8);Serial.print(",Lon:,");Serial.print(gpsLatLon.p,8);
 Serial.print(",Alt:,");Serial.print(GPS.altitude.meters());Serial.print(",Geo:,");Serial.print(GPS.geoid.meters());
@@ -290,10 +285,11 @@ VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
   return relPos2D;
 }
 
-/*GPSデータが更新される間の速度・方位情報から次のGPSデータを予測する*/
+/*GPSデータが更新される間の速度・方位情報から次のGPSデータを推定する*/
 VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
   float sampleTime = 0.01f;
+  float kgauss;
   static uint32_t lastProcessTime;
   static polVectorFloat3D lastLatLon;           //最後に更新したGPSデータ
   static VectorFloat deltaPos2D;                //GPS更新する間に移動した距離(X,Y)
@@ -303,15 +299,23 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
   lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
   if(lastLatLon.t != latlon.t || lastLatLon.p != latlon.p){
-    updatedPos2D = getRelPosition(latlon,alt,geoid,center,courseAngle);
-    estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x;
-    estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y;
-    if(abs(estPos2D.getMagnitude() - updatedPos2D.getMagnitude()) < 3){     //3m以上の差があれば有意な差とみなし、GPSデータを採用
+    estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x + gpsSpeedmps * cos(relAngle) * sampleTime;
+    estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y + gpsSpeedmps * cos(relAngle) * sampleTime;
+    if(abs(estPos2D.getMagnitude() - getRelPosition(latlon,alt,geoid,center,courseAngle).getMagnitude()) < 2){
+      //2m以下の差であれば、推定データを採用
       updatedPos2D = estPos2D;
+      }
+    else{
+      //2m超の差があれば有意な差とみなし、GPSデータを採用
+      kgauss = exp(-pow(estPos2D.getMagnitude() - getRelPosition(latlon,alt,geoid,center,courseAngle).getMagnitude(),2)/(2*pow(0.5,2)));
+      updatedPos2D.x = getRelPosition(latlon,alt,geoid,center,courseAngle).x * (1 - kgauss) + estPos2D.x * kgauss;
+      updatedPos2D.y = getRelPosition(latlon,alt,geoid,center,courseAngle).y * (1 - kgauss) + estPos2D.y * kgauss;
       }
     deltaPos2D.x = 0;
     deltaPos2D.y = 0;
-    lastLatLon = latlon;
+    lastLatLon.t = latlon.t * (1-kgauss) + lastLatLon.t * kgauss;
+    lastLatLon.p = latlon.p * (1-kgauss) + lastLatLon.p * kgauss;
+
     }
   else{
     deltaPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
