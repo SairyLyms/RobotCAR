@@ -120,25 +120,32 @@ void GPSupdate(void)
         heading = GPS.course.rad();
       }
     else{//GPS情報受信・更新できない・速度が低い間はヨーレートによる方位補正
-        heading -= rpyRate.z * sampleTime;
-        abs(heading) > 2 * M_PI ? heading = 0 : 0;
+        float headingbuf;
+        headingbuf  = heading;
+        headingbuf -= rpyRate.z * sampleTime;
+        heading     = RoundRad(headingbuf);
       }
     headingDeg = heading * 180 / M_PI;
-    relAngle = heading - courseAngle;
+    relAngle = RoundRad(heading - courseAngle);
     //FPSの緯度経度が受信・更新できた場合
     if(GPS.location.isUpdated() && GPS.location.isValid()){
         gpsLatLon.t = GPS.location.lat();
         gpsLatLon.p = GPS.location.lng();
         pos2D = getRelPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
       }
-    //GPSの緯度経度が受信・更新できない場合は速度・相対方位情報で位置修正
-    else{
+    //現在、GPSの緯度経度の受信・更新できないが、前回値が入力されている場合は速度・相対方位情報で位置修正
+    else if(gpsLatLon.t && gpsLatLon.p){
         pos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
         pos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
       }
+    else{//現在、GPSの緯度経度の受信・更新できないが、GPSの緯度経度が初期値の場合は受信するまで待つ
+        pos2D = getRelPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
+    }
 #ifdef DEBUG_GPS
-  Serial.print(pos2D.x);Serial.print(',');Serial.print(pos2D.y);Serial.print(',');
-  Serial.print(relAngle);Serial.print(',');Serial.println(gpsSpeedmps);
+Serial.print("Lat:");Serial.print(gpsLatLon.t);Serial.print("Lon:");Serial.print(gpsLatLon.p);
+Serial.print("Alt:");Serial.print(GPS.altitude.meters());Serial.print("Geo:");Serial.print(GPS.geoid.meters());
+Serial.print("PosX:");Serial.print(pos2D.x);Serial.print("PosY:");Serial.print(pos2D.y);Serial.print("RelAngle:");
+Serial.print(relAngle);Serial.print("Speed:");Serial.println(gpsSpeedmps);
 #endif
   //Serial.print(blh2ecefx(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
   //Serial.print(",");
@@ -277,6 +284,8 @@ VectorFloat getRelPosition(polVectorFloat3D LatLon, float alt, float geoid, Vect
 
   relPos2D.x -= center.x;
   relPos2D.y -= center.y;
+
+  //Serial.print(relPos2D.x);Serial.print(",");Serial.println(relPos2D.y);
 
   return relPos2D;
 }
@@ -442,6 +451,26 @@ float convertRawGyro(int gRaw) {
 
   float g = (gRaw * 250.0) / 32768.0;
   return g;
+}
+
+float RoundRad(float x) //角度を表す変数を0～6.28rad(2 * M_PI)の範囲に収める関数
+{
+	if (x >= 0.f) {
+		return fmod(x, 2 * M_PI);
+	} else {
+		return 2 * M_PI - fmod(-x, 2 * M_PI);
+	}
+	return x;
+}
+
+float RoundDeg(float x) //角度を表す変数を0～360degの範囲に収める関数
+{
+	if (x >= 0.f) {
+		return fmod(x, 360.f);
+	} else {
+		return 360.f - fmod(-x, 360.f);
+	}
+	return x;
 }
 
 
