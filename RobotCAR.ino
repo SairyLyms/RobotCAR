@@ -5,6 +5,15 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <SPI.h>
+
+// ================================================================
+// ===                       Course Data                        ===
+// ================================================================
+VectorFloat center;
+polVectorFloat3D clippingPoint[2];
+VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
+
+
 // ================================================================
 // ===               DEFINE Earth values                        ===
 // ================================================================
@@ -45,14 +54,9 @@ uint32_t timer = millis();
 // ================================================================
 
 // ================================================================
-// ===                       Course Data                        ===
+// ===                       Course Variable                    ===
 // ================================================================
-VectorFloat center;
 float courseAngle;                  /*コースの中心XYの角度*/
-VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
-polVectorFloat3D clippingPoint[2];
-float clippingPointAlt[2];
-float clippingPointGeo[2];
 VectorFloat clippingPoint2D[2];
 //VectorFloat startLatLon[2];
 //VectorFloat goalLatLon[2];
@@ -79,7 +83,6 @@ void setup()
   IMU.setZAccelOffset(2170);
   FStr.attach(3);
   PowUnit.attach(2);
-  SetCourseData();
   delay(1000);
   Serial.flush();
   waitStartCommand();
@@ -101,6 +104,7 @@ void Task100ms(void)
 
 void Task1000ms(void)
 {
+  SetCourseData();
   //Serial.println(millis());
 }
 
@@ -117,7 +121,7 @@ void GPSupdate(void)
     else{//GPS情報受信・更新できない間は縦加速度による速度補正
         gpsSpeedmps += acc.x * sampleTime;
       }
-    if(gpsSpeedmps > 0.5f && GPS.course.isUpdated() && GPS.course.isValid()){
+    if(gpsSpeedmps > 0.25f && GPS.course.isUpdated() && GPS.course.isValid()){
         heading = GPS.course.rad();
       }
     else{//GPS情報受信・更新できない・速度が低い間はヨーレートによる方位補正
@@ -130,14 +134,10 @@ void GPSupdate(void)
     relAngle = RoundRad(heading - courseAngle);
     //GPSの緯度経度
     if(GPS.location.isUpdated() && GPS.location.isValid()){
-        polVectorFloat3D gpsLatLonPre = gpsLatLon;                                   //比較用に前回値を記憶するバッファ
-        gpsLatLonPre.t != GPS.location.lat() ? gpsLatLon.t = GPS.location.lat() : 0; //緯度の値が前回値から変化している場合のみ更新
-        gpsLatLonPre.p != GPS.location.lng() ? gpsLatLon.p = GPS.location.lng() : 0; //経度の値が前回値から変化している場合のみ更新
-        pos2D = GetEstPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle); //推定位置取得(GPSの最新値と速度・方位補完データを比較演算)
+        gpsLatLon.t = GPS.location.lat();
+        gpsLatLon.p = GPS.location.lng();
         }
-    else{
-        pos2D = GetEstPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
-        }
+    pos2D = GetEstPosition(gpsLatLon, GPS.altitude.meters(), GPS.geoid.meters(), center, courseAngle);
 #ifdef DEBUG_GPS
 Serial.print("Lat:,");Serial.print(gpsLatLon.t,8);Serial.print(",Lon:,");Serial.print(gpsLatLon.p,8);
 Serial.print(",Alt:,");Serial.print(GPS.altitude.meters());Serial.print(",Geo:,");Serial.print(GPS.geoid.meters());
@@ -233,19 +233,17 @@ void waitStartCommand(void)
 void SetCourseData(void)
 {
   /*********コースの座標を入力*********/
-  clippingPoint[0].t = 36.5680694580f;    clippingPoint[1].t = 36.5679817199f;    /*緯度設定*/
-  clippingPoint[0].p = 139.99575805664f;  clippingPoint[1].p = 139.99575805664f;  /*経度設定*/
-
-  clippingPointAlt[0] = 153;  clippingPointAlt[1] = 153;        /*標高設定*/
-  clippingPointGeo[0] = 38.6; clippingPointGeo[1] = 38.6;       /*ジオイド高設定*/
+  clippingPoint[0].t = 36.56809997f;  clippingPoint[1].t = 36.56801986f;    /*緯度設定*/
+  clippingPoint[0].p = 139.99577331;  clippingPoint[1].p = 139.99577331f;  /*経度設定*/
   /*******立ち入り禁止エリア設定*******/
-  pointKeepOut[0].x = -20;  pointKeepOut[1].x = 20;            /*立ち入り禁止エリア設定x(前後)方向*/
-  pointKeepOut[0].y = -20;  pointKeepOut[1].y = 20;            /*立ち入り禁止エリア設定y(横)方向*/
+  pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;            /*立ち入り禁止エリア設定x(前後)方向*/
+  pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;            /*立ち入り禁止エリア設定y(横)方向*/
   /********************************/
+
   VectorFloat buf0[2],buf1[2];
 
   for(uint8_t i=0;i<2;i++){
-    buf0[i] = blh2ecef(clippingPoint[i],clippingPointAlt[i],clippingPointGeo[i]);
+    buf0[i] = blh2ecef(clippingPoint[i],GPS.altitude.meters(),GPS.geoid.meters());
     }
 
   courseAngle = atan((buf0[1].y-buf0[0].y)/(buf0[1].x-buf0[0].x));
@@ -289,40 +287,58 @@ VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
 VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
   float sampleTime = 0.01f;
-  float kgauss;
   static uint32_t lastProcessTime;
+  static float deltaAngle;                      //GPS更新する間に変化した角度(rad)
   static polVectorFloat3D lastLatLon;           //最後に更新したGPSデータ
   static VectorFloat deltaPos2D;                //GPS更新する間に移動した距離(X,Y)
   static VectorFloat updatedPos2D;              //出力用の距離データ(X,Y)
-  VectorFloat estPos2D;
+  VectorFloat estPos2D,deltaGPSpos2D;
 
   lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
   if(lastLatLon.t != latlon.t || lastLatLon.p != latlon.p){
-    estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x + gpsSpeedmps * cos(relAngle) * sampleTime;
-    estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y + gpsSpeedmps * cos(relAngle) * sampleTime;
-    if(abs(estPos2D.getMagnitude() - getRelPosition(latlon,alt,geoid,center,courseAngle).getMagnitude()) < 2){
-      //2m以下の差であれば、推定データを採用
-      updatedPos2D = estPos2D;
+    estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x;
+    estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y;
+    deltaGPSpos2D.x = getRelPosition(latlon,alt,geoid,center,courseAngle).x - getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x;
+    deltaGPSpos2D.y = getRelPosition(latlon,alt,geoid,center,courseAngle).y - getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y;
+    //両者の距離の大きさの差が2m以下の場合
+    if(abs(getRelPosition(latlon,alt,geoid,center,courseAngle).getMagnitude()-estPos2D.getMagnitude()) < 2){
+      float deltaGPSAngle = atan(deltaGPSpos2D.y/deltaGPSpos2D.x);
+      if(abs(deltaAngle) - abs(deltaGPSAngle) > 0.5){
+        //方位の差が0.5rad超の場合、推定値で更新
+        updatedPos2D = estPos2D;
+        //Serial.println("estimate_u2");
+        }
+      else{
+        //方位の差が0.5rad以下の場合、GPSデータで更新
+        updatedPos2D = getRelPosition(latlon,alt,geoid,center,courseAngle);
+        //Serial.println("GPS_u2");
+        }
       }
     else{
-      //2m超の差があれば有意な差とみなし、GPSデータを採用
-      kgauss = exp(-pow(estPos2D.getMagnitude() - getRelPosition(latlon,alt,geoid,center,courseAngle).getMagnitude(),2)/(2*pow(0.5,2)));
-      updatedPos2D.x = getRelPosition(latlon,alt,geoid,center,courseAngle).x * (1 - kgauss) + estPos2D.x * kgauss;
-      updatedPos2D.y = getRelPosition(latlon,alt,geoid,center,courseAngle).y * (1 - kgauss) + estPos2D.y * kgauss;
+      //2m超の差があれば有意な差とみなし、GPSの緯度経度の更新値が進行方向前方±1rad以下であったらGPSデータで更新
+      if(abs(atan(deltaGPSpos2D.y/deltaGPSpos2D.x)) <= 1){
+        updatedPos2D.x = getRelPosition(latlon,alt,geoid,center,courseAngle).x;
+        updatedPos2D.y = getRelPosition(latlon,alt,geoid,center,courseAngle).y;
+        //Serial.println("GPS_o2");
+        }
+      else{//2m超の差があったが、GPSの緯度経度の更新値が進行方向±1radを超えていた場合は推定値で更新
+        updatedPos2D = estPos2D;
+        //Serial.println("estimate_o2");
+        }
       }
+    deltaAngle = 0;
     deltaPos2D.x = 0;
     deltaPos2D.y = 0;
-    lastLatLon.t = latlon.t * (1-kgauss) + lastLatLon.t * kgauss;
-    lastLatLon.p = latlon.p * (1-kgauss) + lastLatLon.p * kgauss;
-
+    lastLatLon = latlon;
     }
   else{
-    deltaPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
-    deltaPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
     updatedPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
     updatedPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
     }
+  deltaAngle -= rpyRate.z * sampleTime;
+  deltaPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
+  deltaPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
   lastProcessTime = millis();
   return updatedPos2D;
 }
@@ -341,10 +357,30 @@ VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 
 void IntegratedChassisControl(void)
 {
-  if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
+    if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
+
+      if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x && 0 < cos(relAngle)){
+        Serial.println("Go to CP0");
+        float targetAngleCP = atan((clippingPoint2D[0].y - pos2D.y - 3)/(clippingPoint2D[0].x - pos2D.x));  //cpからY方向に3mほど余裕を持たせる
+        GPSStrControl(0,targetAngleCP,relAngle,0.2);
+      }
+      else if(clippingPoint2D[0].x < pos2D.x || (0 < pos2D.y && cos(relAngle) < 0)){
+        Serial.println("Turn L");
+        StrCtrlL(0);
+      }
+      else if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x && cos(relAngle) < 0){
+        Serial.println("Go to CP1");
+        float targetAngleCP = atan((clippingPoint2D[1].y - pos2D.y -3)/(clippingPoint2D[1].x - pos2D.x));  //cpからY方向に3mほど余裕を持たせる
+        GPSStrControl(0,targetAngleCP,relAngle,0.2);
+      }
+      else if(clippingPoint2D[1].x > pos2D.x || (0 < pos2D.y &&  0 < cos(relAngle))){
+        Serial.println("Turn R");
+          StrCtrlR(0);
+      }
+      else {Serial.println("Error!");}
       //Serial.println("run");
       //puPwm = 80;
-    }
+  }
   else{
       //Serial.print("brake");
       BrakeCtrl(0,gpsSpeedmps,5);
