@@ -1,3 +1,6 @@
+/************************************************************************/
+/*	Include Files														*/
+/************************************************************************/
 #include <TinyGPS++.h>
 #include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
@@ -6,24 +9,31 @@
 #include <Wire.h>
 #include <SPI.h>
 
-// ================================================================
-// ===                       Course Data                        ===
-// ================================================================
-VectorFloat center;
-polVectorFloat3D clippingPoint[2];
-VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
+/************************************************************************/
+/*	Macro Definition													*/
+/************************************************************************/
+/************************************************************************/
+/*	Struct Definition													*/
+/************************************************************************/
+/************************************************************************/
+/*	Private Constant Definition											*/
+/************************************************************************/
 
-
-// ================================================================
-// ===               DEFINE Earth values                        ===
-// ================================================================
+/************************************************************************/
+/*  DEFINE Earth values                   */
+/************************************************************************/
 #define A 6378137.0
 /* Semi-major axis */
 #define ONE_F 298.257223563
 /* 1/F */
 #define E2  ((1.0/ONE_F)*(2-(1.0/ONE_F)))
 #define NN(p) (A/sqrt(1.0 - (E2)*pow(sin(p*M_PI/180.0),2)))
-
+// ================================================================
+// ===                       Course Data                        ===
+// ================================================================
+VectorFloat center;
+polVectorFloat3D clippingPoint[2];
+VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
 //#define DEBUG_IMU
 #define DEBUG_GPS
@@ -88,6 +98,11 @@ void setup()
   waitStartCommand();
 }
 
+/************************************************************************
+ * FUNCTION : 10 ms周期処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void Task10ms(void)
 {
     IMUupdate();
@@ -96,18 +111,32 @@ void Task10ms(void)
     //GPSStrControl(0 ,90 * M_PI / 180, heading , 10  * M_PI / 180);
 }
 
+/************************************************************************
+ * FUNCTION : 100 ms周期処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void Task100ms(void)
 {
-
     //Serial.print(GPS.course.deg());
 }
 
+/************************************************************************
+ * FUNCTION : 1000 ms周期処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void Task1000ms(void)
 {
   SetCourseData();
   //Serial.println(millis());
 }
 
+/************************************************************************
+ * FUNCTION : GPS更新処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void GPSupdate(void)
 {
     float sampleTime = 0.01f;
@@ -154,6 +183,11 @@ Serial.print(relAngle);Serial.print(",Speed:,");Serial.println(gpsSpeedmps);
 
 }
 
+/************************************************************************
+ * FUNCTION : IMU更新処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void IMUupdate(void)
 {
     float gfx, gfy, gfz;    //  Gyroscope raw values from MPU-6150
@@ -220,7 +254,11 @@ float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
   return buf;
 }
 
-
+/************************************************************************
+ * FUNCTION : IMU更新処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void waitStartCommand(void)
 {
   // wait for ready
@@ -230,6 +268,11 @@ void waitStartCommand(void)
   while (Serial.available() && Serial.read()); // empty buffer again
 }
 
+/************************************************************************
+ * FUNCTION : コース設定
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void SetCourseData(void)
 {
   /*********コースの座標を入力*********/
@@ -268,7 +311,11 @@ void SetCourseData(void)
 
 }
 
-//コース中心からの相対距離を2D直交座標系で求める
+/************************************************************************
+ * FUNCTION : コース中心からの相対位置計算
+ * INPUT    : GPS緯度経度、標高、ジオイド高、コース中心位置(ECEF座標)、コースの角度(ECEF座標)
+ * OUTPUT   : なし
+ ***********************************************************************/
 VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
   VectorFloat buf0,relPos2D;
@@ -283,7 +330,12 @@ VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
   return relPos2D;
 }
 
-/*GPSデータが更新される間の速度・方位情報から次のGPSデータを推定する*/
+
+/************************************************************************
+ * FUNCTION : 現在位置推定
+ * INPUT    : GPS緯度経度、標高、ジオイド高、コース中心位置(ECEF座標)、コースの角度(ECEF座標)
+ * OUTPUT   : なし
+ ***********************************************************************/
 VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
   float sampleTime = 0.01f;
@@ -343,7 +395,11 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
   return updatedPos2D;
 }
 
-
+/************************************************************************
+ * FUNCTION : BLH座標系からECEF座標系への変換
+ * INPUT    : GPS緯度経度、標高、ジオイド高
+ * OUTPUT   : なし
+ ***********************************************************************/
 VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 {
   VectorFloat ecef;
@@ -353,42 +409,87 @@ VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
   return ecef;
 }
 
-/*************ICC***************/
-
+/************************************************************************
+ * FUNCTION : シャシ統合制御(テスト中)
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
 void IntegratedChassisControl(void)
 {
-    if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
+    int posModex;
+    //if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
+    if(1){//テスト中
+      //if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){posModex = 0;}
+      //else if(clippingPoint2D[0].x < pos2D.x){posModex = 1;}
+      //else{posModex = -1;}
 
-      if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x && 0 < cos(relAngle)){
-        Serial.println("Go to CP0");
-        float targetAngleCP = atan((clippingPoint2D[0].y - pos2D.y - 3)/(clippingPoint2D[0].x - pos2D.x));  //cpからY方向に3mほど余裕を持たせる
-        GPSStrControl(0,targetAngleCP,relAngle,0.2);
+    switch (posModex) {
+      case 0:GotoNextCP(pos2D, relAngle, rpyRate);PowUnit.write(puPwm);break;
+      case 1:break;
+      case -1:break;
+      default :BrakeCtrl(0,gpsSpeedmps,5);break;
       }
-      else if(clippingPoint2D[0].x < pos2D.x || (0 < pos2D.y && cos(relAngle) < 0)){
-        Serial.println("Turn L");
-        StrCtrlL(0);
-      }
-      else if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x && cos(relAngle) < 0){
-        Serial.println("Go to CP1");
-        float targetAngleCP = atan((clippingPoint2D[1].y - pos2D.y -3)/(clippingPoint2D[1].x - pos2D.x));  //cpからY方向に3mほど余裕を持たせる
-        GPSStrControl(0,targetAngleCP,relAngle,0.2);
-      }
-      else if(clippingPoint2D[1].x > pos2D.x || (0 < pos2D.y &&  0 < cos(relAngle))){
-        Serial.println("Turn R");
-          StrCtrlR(0);
-      }
-      else {Serial.println("Error!");}
-      //Serial.println("run");
-      //puPwm = 80;
-  }
-  else{
-      //Serial.print("brake");
+    }
+    else{
       BrakeCtrl(0,gpsSpeedmps,5);
-  }
-  PowUnit.write(puPwm);
+    }
 }
 
-/*GPS方位ベース操舵処理*/
+/************************************************************************
+ * FUNCTION : CP間の操舵制御
+ * INPUT    : 相対座標、X軸に対する相対角度、ヨーレート
+ * OUTPUT   : なし
+ ***********************************************************************/
+void GotoNextCP(VectorFloat pos2D,float relAngle,VectorFloat rpyRate)
+{
+  float targetAngleCP;
+  VectorFloat cpOffset;
+  cpOffset.x = 10;
+  cpOffset.y = 2;
+  if(cos(relAngle) > 0){ //進行方向がCP0方向
+      Serial.println("Go to CP0");
+      targetAngleCP = atan(((clippingPoint2D[0].y - cpOffset.y) - pos2D.y)/((clippingPoint2D[0].x + cpOffset.x) - pos2D.x));
+  }
+  else{//進行方向がCP1方向
+      Serial.println("Go to CP1");
+      targetAngleCP = atan(((clippingPoint2D[1].y - cpOffset.y) - pos2D.y)/((clippingPoint2D[1].x - cpOffset.x) - pos2D.x));
+  }
+  FStr.write(StrControlValue(targetAngleCP,rpyRate,0));
+  Serial.print("targetAngleCP:"),Serial.println(targetAngleCP);
+}
+
+/************************************************************************
+ * FUNCTION : 操舵制御指示値演算
+ * INPUT    : CPまでの目標角度、ヨーレート、
+ *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+float StrControlValue(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
+{
+  float strSpeedGain = 5;               //操舵速度ゲイン
+  float thresholdAngleRad = 0.1;
+  //static float lasttargetAngleCP;
+  static float controlValue = 90.0f;     //直進状態を初期値とする
+
+  if(sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad) || (forceCtrlMode == 1 && sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad))) {//右にずれてる
+    controlValue += strSpeedGain * abs(sin(targetAngleCP - relAngle));    //左にずれ分修正
+    Serial.print("Turn L");
+  }
+  else if(sin(thresholdAngleRad) < sin(targetAngleCP - relAngle) || (forceCtrlMode == -1 && sin(thresholdAngleRad) < sin(targetAngleCP - relAngle))){//左にずれてる
+    controlValue -= strSpeedGain * abs(sin(targetAngleCP - relAngle));      //右にずれ分修正
+    Serial.print("Turn R");
+  }
+  else{                                                         //ほぼ直進
+    controlValue > 90 ? controlValue -= 0.1 :0;       //直進状態をベースにヨーレートで補正
+    controlValue < 90 ? controlValue += 0.1 :0;
+    controlValue == 90 ? controlValue -= rpyRate.z:0;
+  }
+  //lasttargetAngleCP = targetAngleCP;
+  LimitValue(controlValue,110,70);
+  return controlValue;
+}
+
+/*GPS方位ベース操舵処理(方位判定まで)*/
 void GPSStrControl(int directionMode, float tgtAngleRad, float nowAngleRad, float thresholdAngleRad)  //コース走行時のestAngleはクリッピングポイントから演算して入力する
 {
   float limCircleMin[2],limCircleMax[2];
@@ -413,50 +514,12 @@ void GPSStrControl(int directionMode, float tgtAngleRad, float nowAngleRad, floa
 
 switch(directionMode){                        //旋回方向モード(-1:右,1:左,それ以外:左右)
   case -1:
-    StrCtrlR(isGoStraight);
+    //StrCtrlR(isGoStraight);break;
   case 1:
-    StrCtrlL(isGoStraight);
+    //StrCtrlL(isGoStraight);break;
   default:
-    StrCtrlLR(isGoStraight,diffAngleRad);
+    //StrCtrlLR(isGoStraight,diffAngleRad);break;
   }
-}
-
-void StrCtrlLR(bool isGoStraight,float diffAngleRad)
-{
-    if(sin(diffAngleRad) >= 0){ //時計回り方向に修正した方が容易な場合
-        //右に修正操舵処理
-        StrCtrlR(isGoStraight);
-      }
-    else{                       //反時計回り方向に修正した方が容易な場合
-        //左に修正操舵処理
-        StrCtrlL(isGoStraight);
-      }
-}
-
-void StrCtrlL(bool isGoStraight)
-{
-  if(isGoStraight){             //目標方位と現在方位に差がない場合
-          Serial.print("GO!");
-          FStr.write(90);
-    }
-  else{
-          Serial.print("Left!");
-          FStr.write(140);
-    }
-   Serial.println("");
-}
-
-void StrCtrlR(bool isGoStraight)
-{
-  if(isGoStraight){             //目標方位と現在方位に差がない場合
-          Serial.print("GO!");
-          FStr.write(90);
-    }
-  else{
-          Serial.print("Right!");
-          FStr.write(40);
-    }
-   Serial.println("");
 }
 
 uint8_t ConstTurn(bool isGoStraight, int8_t direction, float turnRadius, float targetAngle, float maxAy)
