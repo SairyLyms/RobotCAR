@@ -417,16 +417,15 @@ VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 void IntegratedChassisControl(void)
 {
     int posModex;
-    //if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
-    if(1){//テスト中
-      //if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){posModex = 0;}
-      //else if(clippingPoint2D[0].x < pos2D.x){posModex = 1;}
-      //else{posModex = -1;}
-
+    if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
+      if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){posModex = 0;}
+      else if(clippingPoint2D[0].x < pos2D.x){posModex = 1;}
+      else{posModex = -1;}
     switch (posModex) {
+      puPwm = 87;
       case 0:GotoNextCP(pos2D, relAngle, rpyRate);PowUnit.write(puPwm);break;
-      case 1:break;
-      case -1:break;
+      case 1:StrControlValue(3.14,rpyRate,1);PowUnit.write(puPwm);break;
+      case -1:StrControlValue(0,rpyRate,-1);PowUnit.write(puPwm);break;
       default :BrakeCtrl(0,gpsSpeedmps,5);break;
       }
     }
@@ -466,7 +465,7 @@ void GotoNextCP(VectorFloat pos2D,float relAngle,VectorFloat rpyRate)
  ***********************************************************************/
 float StrControlValue(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
 {
-  float strSpeedGain = 5;               //操舵速度ゲイン
+  float strSpeedGain = 2;               //操舵速度ゲイン
   float thresholdAngleRad = 0.1;
   //static float lasttargetAngleCP;
   static float controlValue = 90.0f;     //直進状態を初期値とする
@@ -512,15 +511,14 @@ void GPSStrControl(int directionMode, float tgtAngleRad, float nowAngleRad, floa
                  (limCircleMin[1] < sin(diffAngleRad)) &&
                  (sin(diffAngleRad) < limCircleMax[1]);
 
-switch(directionMode){                        //旋回方向モード(-1:右,1:左,それ以外:左右)
-  case -1:
+//switch(directionMode){                        //旋回方向モード(-1:右,1:左,それ以外:左右)
+  //case -1:
     //StrCtrlR(isGoStraight);break;
-  case 1:
+//  case 1:
     //StrCtrlL(isGoStraight);break;
-  default:
+//  default:
     //StrCtrlLR(isGoStraight,diffAngleRad);break;
   }
-}
 
 uint8_t ConstTurn(bool isGoStraight, int8_t direction, float turnRadius, float targetAngle, float maxAy)
 {
