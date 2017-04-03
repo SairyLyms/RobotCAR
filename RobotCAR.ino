@@ -36,7 +36,9 @@ polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
 //#define DEBUG_IMU
-//#define DEBUG_GPS
+#define DEBUG_GPS
+//#define DEBUG
+
 
 TinyGPSPlus GPS;
 MPU6050 IMU;
@@ -93,9 +95,8 @@ void setup()
   IMU.setZAccelOffset(2170);
   FStr.attach(3);
   PowUnit.attach(2);
-  delay(1000);
   Serial.flush();
-  waitStartCommand();
+  Initwait();
 }
 
 /************************************************************************
@@ -107,8 +108,17 @@ void Task10ms(void)
 {
     IMUupdate();
     GPSupdate();
-    IntegratedChassisControl();
     //GPSStrControl(0 ,90 * M_PI / 180, heading , 10  * M_PI / 180);
+}
+
+/************************************************************************
+ * FUNCTION : 10 ms周期処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
+void Task20ms(void)
+{
+  IntegratedChassisControl();
 }
 
 /************************************************************************
@@ -128,7 +138,6 @@ void Task100ms(void)
  ***********************************************************************/
 void Task1000ms(void)
 {
-  SetCourseData();
   //Serial.println(millis());
 }
 
@@ -170,8 +179,8 @@ void GPSupdate(void)
 #ifdef DEBUG_GPS
 Serial.print("Lat:,");Serial.print(gpsLatLon.t,8);Serial.print(",Lon:,");Serial.print(gpsLatLon.p,8);
 Serial.print(",Alt:,");Serial.print(GPS.altitude.meters());Serial.print(",Geo:,");Serial.print(GPS.geoid.meters());
-Serial.print(",PosX:,");Serial.print(pos2D.x);Serial.print(",PosY:,");Serial.print(pos2D.y);Serial.print(",RelAngle:,");
-Serial.print(relAngle);Serial.print(",Speed:,");Serial.println(gpsSpeedmps);
+Serial.print(",PosX:,");Serial.print(pos2D.x);Serial.print(",PosY:,");Serial.print(pos2D.y);
+Serial.print(",Heading:,");Serial.print(heading);Serial.print(",RelAngle:,");Serial.print(relAngle);Serial.print(",Speed:,");Serial.println(gpsSpeedmps);
 #endif
   //Serial.print(blh2ecefx(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
   //Serial.print(",");
@@ -259,7 +268,7 @@ float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
-void waitStartCommand(void)
+void Initwait(void)
 {
   // wait for ready
   Serial.println(F("Send any character to Start RobotCar!!: "));
@@ -275,15 +284,24 @@ void waitStartCommand(void)
  ***********************************************************************/
 void SetCourseData(void)
 {
-  /*********コースの座標を入力*********/
-  clippingPoint[0].t = 36.578023f;  clippingPoint[1].t = 36.578079f;    /*緯度設定*/
-  clippingPoint[0].p = 140.014888f;  clippingPoint[1].p = 140.015096f;  /*経度設定*/
-  /*******立ち入り禁止エリア設定*******/
-  pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;            /*立ち入り禁止エリア設定x(前後)方向*/
-  pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;            /*立ち入り禁止エリア設定y(横)方向*/
-  /********************************/
+  static int done;
+  if(!done){
 
-  VectorFloat buf0[2],buf1[2];
+    /*********コースの座標を入力*********/
+    clippingPoint[0].t = 36.56811523f;  clippingPoint[1].t = 36.56797790f;    /*緯度設定*/
+    clippingPoint[0].p = 139.99578857f;  clippingPoint[1].p = 139.99578857f;  /*経度設定*/
+    /*******立ち入り禁止エリア設定*******/
+    pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;            /*立ち入り禁止エリア設定x(前後)方向*/
+    pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;            /*立ち入り禁止エリア設定y(横)方向*/
+    /********************************/
+
+    VectorFloat buf0[2],buf1[2];
+
+  while(GPS.satellites.value() < 5){
+    while (Serial1.available() > 0){
+      GPS.encode(Serial1.read());
+    }
+  }
 
   for(uint8_t i=0;i<2;i++){
     buf0[i] = blh2ecef(clippingPoint[i],GPS.altitude.meters(),GPS.geoid.meters());
@@ -308,7 +326,8 @@ void SetCourseData(void)
   Serial.print("CP1:");Serial.print(clippingPoint2D[1].x);Serial.print(",");Serial.println(clippingPoint2D[1].y);
   Serial.print("CenterX:");Serial.print(center.x);
   Serial.print("CenterY:");Serial.println(center.y);
-
+  done = 1;
+  }
 }
 
 /************************************************************************
@@ -418,8 +437,7 @@ void IntegratedChassisControl(void)
 {
     int posModex;
     if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
-      puPwm = 87;
-      PowUnit.write(puPwm);
+      PowUnit.write(87);
     }
     else{
       BrakeCtrl(0,gpsSpeedmps,5);
@@ -427,12 +445,13 @@ void IntegratedChassisControl(void)
 
     if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){posModex = 0;}
     else if(clippingPoint2D[0].x < pos2D.x){posModex = 1;}
-    else{posModex = -1;}
+    else if(pos2D.x < clippingPoint2D[1].x){posModex = -1;}
+    else{posModex = 0;}
 
     switch (posModex) {
       case 0:GotoNextCP(pos2D, relAngle, rpyRate);break;
-      case 1:StrControlValue(3.14,rpyRate,1);break;
-      case -1:StrControlValue(0,rpyRate,-1);break;
+      case 1:FStr.write(StrControlValue(3.14,rpyRate,1));break;
+      case -1:FStr.write(StrControlValue(0,rpyRate,-1));break;
       default :BrakeCtrl(0,gpsSpeedmps,5);break;
     }
 }
@@ -474,7 +493,7 @@ void GotoNextCP(VectorFloat pos2D,float relAngle,VectorFloat rpyRate)
  ***********************************************************************/
 float StrControlValue(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
 {
-  float strSpeedGain = 2;               //操舵速度ゲイン
+  float strSpeedGain = 5;               //操舵速度ゲイン
   float thresholdAngleRad = 0.1;
   //static float lasttargetAngleCP;
   static float controlValue = 90.0f;     //直進状態を初期値とする
@@ -482,13 +501,13 @@ float StrControlValue(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
   if(sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad) || (forceCtrlMode == 1 && sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad))) {//右にずれてる
     controlValue += strSpeedGain * abs(sin(targetAngleCP - relAngle));    //左にずれ分修正
 #ifdef DEBUG
-    Serial.print("Turn L");
+    Serial.println("Turn L");
 #endif
   }
   else if(sin(thresholdAngleRad) < sin(targetAngleCP - relAngle) || (forceCtrlMode == -1 && sin(thresholdAngleRad) < sin(targetAngleCP - relAngle))){//左にずれてる
     controlValue -= strSpeedGain * abs(sin(targetAngleCP - relAngle));      //右にずれ分修正
 #ifdef DEBUG
-    Serial.print("Turn R");
+    Serial.println("Turn R");
 #endif
   }
   else{                                                         //ほぼ直進
@@ -496,11 +515,11 @@ float StrControlValue(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
     controlValue < 90 ? controlValue += 0.1 :0;
     controlValue == 90 ? controlValue -= rpyRate.z:0;
 #ifdef DEBUG
-    Serial.print("No Steer");
+    Serial.println("No Steer");
 #endif
   }
   //lasttargetAngleCP = targetAngleCP;
-  LimitValue(controlValue,110,70);
+  controlValue = LimitValue(controlValue,120,60);
   return controlValue;
 }
 
@@ -629,10 +648,14 @@ float RoundDeg(float x) //角度を表す変数を0～360degの範囲に収め�
 
 void TaskMain(void)
 {
-  volatile uint8_t cnt10,cnt100;
+  volatile uint8_t cnt2,cnt10,cnt100;
   if (timer > millis()) timer = millis();
   if (millis() - timer >= 10) {
     Task10ms();
+    if(cnt2>=2){
+      Task20ms();
+      cnt2=0;
+      }
     if(cnt10>=10){
       Task100ms();
       cnt10=0;
@@ -642,6 +665,7 @@ void TaskMain(void)
       cnt100=0;
     }
     timer = millis();
+    cnt2++;
     cnt10++;
     cnt100++;
  }
@@ -649,6 +673,7 @@ void TaskMain(void)
 
 void loop()
 {
+  SetCourseData();
   TaskMain();
 }
 
