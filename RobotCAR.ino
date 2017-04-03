@@ -36,7 +36,7 @@ polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
 //#define DEBUG_IMU
-#define DEBUG_GPS
+//#define DEBUG_GPS
 
 TinyGPSPlus GPS;
 MPU6050 IMU;
@@ -276,8 +276,8 @@ void waitStartCommand(void)
 void SetCourseData(void)
 {
   /*********コースの座標を入力*********/
-  clippingPoint[0].t = 36.56809997f;  clippingPoint[1].t = 36.56801986f;    /*緯度設定*/
-  clippingPoint[0].p = 139.99577331;  clippingPoint[1].p = 139.99577331f;  /*経度設定*/
+  clippingPoint[0].t = 36.578023f;  clippingPoint[1].t = 36.578079f;    /*緯度設定*/
+  clippingPoint[0].p = 140.014888f;  clippingPoint[1].p = 140.015096f;  /*経度設定*/
   /*******立ち入り禁止エリア設定*******/
   pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;            /*立ち入り禁止エリア設定x(前後)方向*/
   pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;            /*立ち入り禁止エリア設定y(横)方向*/
@@ -418,19 +418,22 @@ void IntegratedChassisControl(void)
 {
     int posModex;
     if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
-      if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){posModex = 0;}
-      else if(clippingPoint2D[0].x < pos2D.x){posModex = 1;}
-      else{posModex = -1;}
-    switch (posModex) {
       puPwm = 87;
-      case 0:GotoNextCP(pos2D, relAngle, rpyRate);PowUnit.write(puPwm);break;
-      case 1:StrControlValue(3.14,rpyRate,1);PowUnit.write(puPwm);break;
-      case -1:StrControlValue(0,rpyRate,-1);PowUnit.write(puPwm);break;
-      default :BrakeCtrl(0,gpsSpeedmps,5);break;
-      }
+      PowUnit.write(puPwm);
     }
     else{
       BrakeCtrl(0,gpsSpeedmps,5);
+    }
+
+    if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){posModex = 0;}
+    else if(clippingPoint2D[0].x < pos2D.x){posModex = 1;}
+    else{posModex = -1;}
+
+    switch (posModex) {
+      case 0:GotoNextCP(pos2D, relAngle, rpyRate);break;
+      case 1:StrControlValue(3.14,rpyRate,1);break;
+      case -1:StrControlValue(0,rpyRate,-1);break;
+      default :BrakeCtrl(0,gpsSpeedmps,5);break;
     }
 }
 
@@ -446,15 +449,21 @@ void GotoNextCP(VectorFloat pos2D,float relAngle,VectorFloat rpyRate)
   cpOffset.x = 10;
   cpOffset.y = 2;
   if(cos(relAngle) > 0){ //進行方向がCP0方向
+#ifdef DEBUG
       Serial.println("Go to CP0");
+#endif
       targetAngleCP = atan(((clippingPoint2D[0].y - cpOffset.y) - pos2D.y)/((clippingPoint2D[0].x + cpOffset.x) - pos2D.x));
   }
   else{//進行方向がCP1方向
+#ifdef DEBUG
       Serial.println("Go to CP1");
+#endif
       targetAngleCP = atan(((clippingPoint2D[1].y - cpOffset.y) - pos2D.y)/((clippingPoint2D[1].x - cpOffset.x) - pos2D.x));
   }
   FStr.write(StrControlValue(targetAngleCP,rpyRate,0));
+#ifdef DEBUG
   Serial.print("targetAngleCP:"),Serial.println(targetAngleCP);
+#endif
 }
 
 /************************************************************************
@@ -472,16 +481,23 @@ float StrControlValue(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
 
   if(sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad) || (forceCtrlMode == 1 && sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad))) {//右にずれてる
     controlValue += strSpeedGain * abs(sin(targetAngleCP - relAngle));    //左にずれ分修正
+#ifdef DEBUG
     Serial.print("Turn L");
+#endif
   }
   else if(sin(thresholdAngleRad) < sin(targetAngleCP - relAngle) || (forceCtrlMode == -1 && sin(thresholdAngleRad) < sin(targetAngleCP - relAngle))){//左にずれてる
     controlValue -= strSpeedGain * abs(sin(targetAngleCP - relAngle));      //右にずれ分修正
+#ifdef DEBUG
     Serial.print("Turn R");
+#endif
   }
   else{                                                         //ほぼ直進
     controlValue > 90 ? controlValue -= 0.1 :0;       //直進状態をベースにヨーレートで補正
     controlValue < 90 ? controlValue += 0.1 :0;
     controlValue == 90 ? controlValue -= rpyRate.z:0;
+#ifdef DEBUG
+    Serial.print("No Steer");
+#endif
   }
   //lasttargetAngleCP = targetAngleCP;
   LimitValue(controlValue,110,70);
@@ -504,8 +520,10 @@ void GPSStrControl(int directionMode, float tgtAngleRad, float nowAngleRad, floa
 
   //目標方位と現在方位の差
   diffAngleRad = tgtAngleRad - nowAngleRad;
+#ifdef DEBUG
   Serial.print(nowAngleRad);
   Serial.print("TurnDirection:");
+#endif
   //GPS方位による直進判定
   isGoStraight = (limCircleMin[0] < cos(diffAngleRad)) &&
                  (limCircleMin[1] < sin(diffAngleRad)) &&
