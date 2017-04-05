@@ -454,7 +454,10 @@ VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 void IntegratedChassisControl(void)
 {
 	int posModex;
-	static float targetAngleCP;
+	static float targetAngleCP,turnAngle;
+	float sampleTime = 0.01f;
+	static uint32_t lastProcessTime;
+	lastProcessTime == 0 ? sampleTime = 0.02f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
 	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
 		PowUnit.write(87);
@@ -462,21 +465,25 @@ void IntegratedChassisControl(void)
 	else{
 		PowUnit.write(BrakeCtrl(0,gpsSpeedmps,5));
 	}
-	if(clippingPoint2D[0].x < pos2D.x) {
+	if(clippingPoint2D[0].x < pos2D.x && abs(turnAngle) < 3.14) {
 		if(cos(relAngle) < 0) {
-			targetAngleCP = atan2((clippingPoint2D[1].y - pos2D.y),(clippingPoint2D[1].x - pos2D.x));
+			targetAngleCP = -atan2((clippingPoint2D[1].y - pos2D.y),(clippingPoint2D[1].x - pos2D.x));
 			if(sin(relAngle) < 0){posModex = 0;}
 		}
 		else{posModex = 1;}
+		turnAngle += rpyRate.z * sampleTime;
 	}
-	else if(pos2D.x < clippingPoint2D[1].x) {
-		if(cos(relAngle) > 0) {targetAngleCP = atan2((clippingPoint2D[0].y - pos2D.y),(clippingPoint2D[0].x - pos2D.x));
+	else if(pos2D.x < clippingPoint2D[1].x && abs(turnAngle) < 3.14) {
+		if(cos(relAngle) > 0) {
+			targetAngleCP = -atan2((clippingPoint2D[0].y - pos2D.y),(clippingPoint2D[0].x - pos2D.x));
 			if(sin(relAngle) < 0){posModex = 0;}
 		}
 		else{posModex = -1;}
+		turnAngle += rpyRate.z * sampleTime;
 	}
 	else{
 		posModex = 0;
+		turnAngle = 0;
 	}
     #ifdef DEBUG
 	Serial.print("Lat:,"); Serial.print(gpsLatLon.t,8); Serial.print(",Lon:,"); Serial.print(gpsLatLon.p,8);
@@ -490,6 +497,7 @@ void IntegratedChassisControl(void)
 	case -1: FStr.write((int)StrControl(targetAngleCP,rpyRate,posModex)); break;
 	default: BrakeCtrl(0,gpsSpeedmps,5); break;
 	}
+	lastProcessTime = millis();
 }
 
 /************************************************************************
