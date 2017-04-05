@@ -483,7 +483,7 @@ void IntegratedChassisControl(void)
 	}
 	else{
 		posModex = 0;
-		turnAngle = 0;
+		if(-1 < pos2D.x && pos2D.x < 1){turnAngle = 0;}
 	}
     #ifdef DEBUG
 	Serial.print("Lat:,"); Serial.print(gpsLatLon.t,8); Serial.print(",Lon:,"); Serial.print(gpsLatLon.p,8);
