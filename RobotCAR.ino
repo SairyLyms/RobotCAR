@@ -498,10 +498,10 @@ float StrControl(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
 
 	strSpeedGain += abs(rpyRate.z);
 
-	if((sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad))) {//右にずれてる
+	if(forceCtrlMode == 0 && (sin(targetAngleCP - relAngle) < sin(-thresholdAngleRad))) {//右にずれてる
 		controlValue += strSpeedGain * abs(sin(targetAngleCP - relAngle)); //左にずれ分修正
 	}
-	else if((sin(thresholdAngleRad) < sin(targetAngleCP - relAngle))) {//左にずれてる
+	else if(forceCtrlMode == 0 && (sin(thresholdAngleRad) < sin(targetAngleCP - relAngle))) {//左にずれてる
 		controlValue -= strSpeedGain * abs(sin(targetAngleCP - relAngle));//右にずれ分修正
 	}
 	else if(forceCtrlMode == 1 && (abs(sin(targetAngleCP - relAngle)) > sin(thresholdAngleRad))) {
