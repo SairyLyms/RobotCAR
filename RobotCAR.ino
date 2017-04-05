@@ -38,7 +38,11 @@ VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 #define DEBUG
+//#define TechCom											/*テストコース設定*/
 
+#ifndef TechCom
+#define HappiTow
+#endif
 
 TinyGPSPlus GPS;
 MPU6050 IMU;
@@ -287,6 +291,7 @@ void SetCourseData(void)
 	static int done;
 	if(!done) {
 
+#ifdef TechCom
 		/*********コースの座標を入力*********/
 		clippingPoint[0].t = 36.57592010f;  clippingPoint[1].t = 36.57586669f;/*緯度設定*/
 		clippingPoint[0].p = 140.01605224f;  clippingPoint[1].p = 140.01580810f;/*経度設定*/
@@ -294,8 +299,17 @@ void SetCourseData(void)
 		pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
 		pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
 		/********************************/
+#elif defined HappiTow
+	/*********コースの座標を入力*********/
+		clippingPoint[0].t = 36.56811523f;  clippingPoint[1].t = 36.56797790f;    /*緯度設定*/
+		clippingPoint[0].p = 139.99578857f;  clippingPoint[1].p = 139.99578857f;  /*経度設定*/
+	/*******立ち入り禁止エリア設定*******/
+	pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
+	pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
+	/********************************/
+#endif
 
-		VectorFloat buf0[2],buf1[2],bufcenter;
+		VectorFloat buf0[2];
 
 		while(GPS.satellites.value() < 5) {
 			while (Serial1.available() > 0) {
@@ -306,12 +320,13 @@ void SetCourseData(void)
 		for(uint8_t i=0; i<2; i++) {
 			buf0[i] = blh2ecef(clippingPoint[i],GPS.altitude.meters(),GPS.geoid.meters());
 		}
-		bufcenter.x = 0.5*(buf0[1].x+buf0[0].x);
-		bufcenter.y = 0.5*(buf0[1].y+buf0[0].y);
+
+		center.x = 0.5*(buf0[1].x+buf0[0].x);
+		center.y = 0.5*(buf0[1].y+buf0[0].y);
 
 		for(uint8_t i=0; i<2; i++) {
-			buf0[i].x = buf0[i].x - bufcenter.x;
-			buf0[i].y = buf0[i].y - bufcenter.y;
+			buf0[i].x = buf0[i].x - center.x;
+			buf0[i].y = buf0[i].y - center.y;
 		}
 
 		courseAngle = atan2(buf0[0].y,buf0[0].x);
@@ -320,16 +335,8 @@ void SetCourseData(void)
 		Serial.print("CPbuf1:"); Serial.print(buf0[1].x); Serial.print(","); Serial.println(buf0[1].y);
 
 		for(uint8_t i=0; i<2; i++) {
-			buf1[i].x = buf0[i].x * cos(-courseAngle) - buf0[i].y * sin(-courseAngle);
-			buf1[i].y = buf0[i].x * sin(-courseAngle) + buf0[i].y * cos(-courseAngle);
-		}
-
-		center.x = (buf1[1].x-buf1[0].x)*0.5 + buf1[0].x;
-		center.y = (buf1[1].y-buf1[0].y)*0.5 + buf1[0].y;
-
-		for(uint8_t i=0; i<2; i++) {
-			clippingPoint2D[i].x = buf1[i].x - center.x;
-			clippingPoint2D[i].y = buf1[i].y - center.y;
+			clippingPoint2D[i].x = buf0[i].x * cos(-courseAngle) - buf0[i].y * sin(-courseAngle);
+			clippingPoint2D[i].y = buf0[i].x * sin(-courseAngle) + buf0[i].y * cos(-courseAngle);
 		}
 
 		Serial.print("CP0:"); Serial.print(clippingPoint2D[0].x); Serial.print(","); Serial.println(clippingPoint2D[0].y);
@@ -350,11 +357,11 @@ VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
 	VectorFloat buf0,relPos2D;
 	buf0 = blh2ecef(latlon,alt,geoid);
 
-	relPos2D.x = buf0.x*cos(-courseAngle) - buf0.y*sin(-courseAngle);
-	relPos2D.y = buf0.x*sin(-courseAngle) + buf0.y*cos(-courseAngle);
+	buf0.x = buf0.x - center.x;
+	buf0.y = buf0.y - center.y;
 
-	relPos2D.x -= center.x;
-	relPos2D.y -= center.y;
+	relPos2D.x = buf0.x * cos(-courseAngle) - buf0.y * sin(-courseAngle);
+	relPos2D.y = buf0.x * sin(-courseAngle) + buf0.y * cos(-courseAngle);
 
 	return relPos2D;
 }
