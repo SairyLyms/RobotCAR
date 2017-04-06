@@ -38,7 +38,7 @@ VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 #define DEBUG
-#define TechCom											/*テストコース設定*/
+//#define TechCom											/*テストコース設定*/
 
 #ifndef TechCom
 #define HappiTow
@@ -446,50 +446,123 @@ void ChassisFinalOutput(int puPwm,int fStrPwm)
  ***********************************************************************/
 void IntegratedChassisControl(void)
 {
-	int posModex;
-	static float targetAngleCP,turnAngle;
+	float targetAngleCP;
+	int8_t mode;
+	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
+	mode < 0 ? puPwm = BrakeCtrl(0,gpsSpeedmps,5) : puPwm = 87;
+	switch (mode) {
+	//case 1: fStrPwm = (int)StrControlStr(mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
+	case 2: fStrPwm = (int)StrControlPID(rpyRate,-1); 	targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x);break;
+	case 3: fStrPwm = (int)StrControlPID(rpyRate,0); 		targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x);break;
+	//case 4: fStrPwm = (int)StrControlStr(mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
+	case 5: fStrPwm = (int)StrControlPID(rpyRate,1); 		targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x);break;
+	case 6: fStrPwm = (int)StrControlPID(rpyRate,0); 		targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x);break;
+	default: fStrPwm = 90;
+	}
+	#ifdef DEBUG
+ Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y);Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
+ Serial.print(",RelAngle:,"); Serial.print(relAngle); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+ Serial.print("Mode:,"); Serial.print(mode);
+	#endif
+}
+
+
+/************************************************************************
+ * FUNCTION : 状態管理
+ * INPUT    :
+ *
+ * OUTPUT   : 状態値
+ ***********************************************************************/
+int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat clippingPoint2D[],float relAngle,VectorFloat rpyRate)
+{
 	float sampleTime = 0.01f;
 	static uint32_t lastProcessTime;
 	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
-	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
-		puPwm = 87;
+	int8_t mode;
+	static float turnAngle;
+
+	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y){
+		if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x){
+			cos(relAngle) > 0 ? mode = 1 : mode = 4;
+			if( -1 < pos2D.x && pos2D.x < 1 ){
+					turnAngle = 0;
+				}
+			}
+		else if(clippingPoint2D[0].x < pos2D.x){
+			turnAngle += rpyRate.z * sampleTime;
+			abs(turnAngle) < 3.14 ? mode = 2 : mode = 3;
+			}
+		else if(pos2D.x < clippingPoint2D[1].x){
+			turnAngle += rpyRate.z * sampleTime;
+			abs(turnAngle) < 3.14 ? mode = 5 : mode = 6;
+		}
+		else{
+			mode = 0;
+		}
 	}
 	else{
-		puPwm = BrakeCtrl(0,gpsSpeedmps,5);
-	}
-	if(clippingPoint2D[0].x < pos2D.x && abs(turnAngle) < 3) {
-		if(cos(turnAngle) < 0) {
-			targetAngleCP = atan2((clippingPoint2D[1].y - pos2D.y),(clippingPoint2D[1].x - pos2D.x));
-		}
-		else{posModex = 1;}
-		turnAngle += rpyRate.z * sampleTime;
-	}
-	else if(pos2D.x < clippingPoint2D[1].x && abs(turnAngle) < 3) {
-		if(cos(turnAngle) < 0) {
-			targetAngleCP = atan2((clippingPoint2D[0].y - pos2D.y),(clippingPoint2D[0].x - pos2D.x));
-		}
-		else{posModex = -1;}
-		turnAngle += rpyRate.z * sampleTime;
-	}
-	else{
-		posModex = 0;
-		if(-1 < pos2D.x && pos2D.x < 1){turnAngle = 0;}
-	}
-    #ifdef DEBUG
-	Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y);
-	Serial.print(",RelAngle:,"); Serial.print(relAngle); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
-	Serial.print("Mode:,"); Serial.print(posModex); Serial.print("TargetAngle:,"); Serial.println(targetAngleCP);
-    #endif
-	switch (posModex) {
-	case 0: FStr.write((int)StrControl(targetAngleCP,rpyRate,posModex)); break;
-	case 1: FStr.write((int)StrControl(targetAngleCP,rpyRate,posModex)); break;
-	case -1: FStr.write((int)StrControl(targetAngleCP,rpyRate,posModex)); break;
-	default: BrakeCtrl(0,gpsSpeedmps,5); break;
+		mode = -1;
 	}
 	lastProcessTime = millis();
+
+	return mode;
 }
 
+
+/************************************************************************
+ * FUNCTION : 直進時操舵制御指示値演算
+ * INPUT    : CPまでの目標角度、ヨーレート、
+ *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+float StrControlStr(int mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relAngle)
+{
+	static float lastyawA,yawAOff,relAOff;
+	static int lastMode;
+	float yawA,value = 90;
+	if(mode != lastMode){
+		yawAOff = rpyAngle.z;
+		relAOff = relAngle;
+	}
+	yawA = rpyAngle.z - yawAOff;
+	if(sin((targetAngleCP-relAOff) - yawA) > 0.3){
+		value += StrControlPID(rpyRate,-0.5)-90;
+	}
+	else if(sin((targetAngleCP-relAOff) - yawA) < -0.3){
+		value += StrControlPID(rpyRate,0.5)-90;
+	}
+	else{
+		value = StrControlPID(rpyRate,0)-90;
+	}
+	value = LimitValue(value,120,60);
+	return value;
+}
+
+/************************************************************************
+ * FUNCTION : 操舵制御指示値演算
+ * INPUT    : CPまでの目標角度、ヨーレート、
+ *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+float StrControlPID(VectorFloat rpyRate,float targetYawRt)
+{
+	float gain = 2.5;
+	float kp = 1*gain,ki = 0.6*gain,kd = 0.125*gain,diff;
+	static float err,lastyawRate;
+	float value = 90;
+
+	err  += targetYawRt - rpyRate.z;
+	diff = rpyRate.z - lastyawRate;
+
+	value = 90 + ki * err - (kp * rpyRate.z + kd * diff);
+
+	value = LimitValue(value,120,60);
+
+	lastyawRate = rpyRate.z;
+
+	return value;
+}
 /************************************************************************
  * FUNCTION : 操舵制御指示値演算
  * INPUT    : CPまでの目標角度、ヨーレート、
