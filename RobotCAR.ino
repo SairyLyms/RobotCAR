@@ -38,7 +38,7 @@ VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 #define DEBUG
-//#define TechCom											/*テストコース設定*/
+#define TechCom											/*テストコース設定*/
 
 #ifndef TechCom
 #define HappiTow
@@ -523,6 +523,7 @@ float StrControl(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
 			else{
 				controlValue = StrControlStraight(controlValue,targetAngleCP,rpyRate,strSpeedGain);
 			}
+			controlValue = LimitValue(controlValue,100,80);
 		}
 	if(forceCtrlMode == 1){
 		if(abs(sin(targetAngleCP - relAngle)) > sin(thresholdAngleRad)) {
