@@ -458,15 +458,15 @@ void IntegratedChassisControl(void)
 	else{
 		puPwm = BrakeCtrl(0,gpsSpeedmps,5);
 	}
-	if(clippingPoint2D[0].x < pos2D.x && abs(turnAngle) < 3.14) {
-		if(cos(relAngle) < 0) {
+	if(clippingPoint2D[0].x < pos2D.x && abs(turnAngle) < 3) {
+		if(cos(turnAngle) < 0) {
 			targetAngleCP = atan2((clippingPoint2D[1].y - pos2D.y),(clippingPoint2D[1].x - pos2D.x));
 		}
 		else{posModex = 1;}
 		turnAngle += rpyRate.z * sampleTime;
 	}
-	else if(pos2D.x < clippingPoint2D[1].x && abs(turnAngle) < 3.14) {
-		if(cos(relAngle) > 0) {
+	else if(pos2D.x < clippingPoint2D[1].x && abs(turnAngle) < 3) {
+		if(cos(turnAngle) < 0) {
 			targetAngleCP = atan2((clippingPoint2D[0].y - pos2D.y),(clippingPoint2D[0].x - pos2D.x));
 		}
 		else{posModex = -1;}
@@ -477,9 +477,8 @@ void IntegratedChassisControl(void)
 		if(-1 < pos2D.x && pos2D.x < 1){turnAngle = 0;}
 	}
     #ifdef DEBUG
-	Serial.print("Lat:,"); Serial.print(gpsLatLon.t,8); Serial.print(",Lon:,"); Serial.print(gpsLatLon.p,8);
 	Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y);
-	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",RelAngle:,"); Serial.print(relAngle); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+	Serial.print(",RelAngle:,"); Serial.print(relAngle); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
 	Serial.print("Mode:,"); Serial.print(posModex); Serial.print("TargetAngle:,"); Serial.println(targetAngleCP);
     #endif
 	switch (posModex) {
