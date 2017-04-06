@@ -451,12 +451,12 @@ void IntegratedChassisControl(void)
 	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
 	mode < 0 ? puPwm = BrakeCtrl(0,gpsSpeedmps,5) : puPwm = 87;
 	switch (mode) {
-	//case 1: fStrPwm = (int)StrControlStr(mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
-	case 2: fStrPwm = (int)StrControlPID(rpyRate,-1); 	targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x);break;
-	case 3: fStrPwm = (int)StrControlPID(rpyRate,0); 		targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x);break;
-	//case 4: fStrPwm = (int)StrControlStr(mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
-	case 5: fStrPwm = (int)StrControlPID(rpyRate,1); 		targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x);break;
-	case 6: fStrPwm = (int)StrControlPID(rpyRate,0); 		targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x);break;
+	case 1: fStrPwm = (int)StrControlStr(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
+	case 2: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,-1); 	targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x);break;
+	case 3: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0); 		targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x);break;
+	case 4: fStrPwm = (int)StrControlStr(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
+	case 5: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,1); 		targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x);break;
+	case 6: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0); 		targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x);break;
 	default: fStrPwm = 90;
 	}
 	#ifdef DEBUG
@@ -516,24 +516,28 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
  *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
  * OUTPUT   : 操舵制御指示値(サーボ角)
  ***********************************************************************/
-float StrControlStr(int mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relAngle)
+float StrControlStr(int mode,float value, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relAngle)
 {
 	static float lastyawA,yawAOff,relAOff;
 	static int lastMode;
-	float yawA,value = 90;
+	float yawA,relTA;
+
+	!value ? value = 90 : 0 ;
+
 	if(mode != lastMode){
 		yawAOff = rpyAngle.z;
 		relAOff = relAngle;
 	}
 	yawA = rpyAngle.z - yawAOff;
-	if(sin((targetAngleCP-relAOff) - yawA) > 0.3){
-		value += StrControlPID(rpyRate,-0.5)-90;
+	relTA = targetAngleCP - relAOff;
+	if(sin(relTA - yawA) > 0.2){
+		value = StrControlPID(value,rpyRate,-0.5);
 	}
-	else if(sin((targetAngleCP-relAOff) - yawA) < -0.3){
-		value += StrControlPID(rpyRate,0.5)-90;
+	else if(sin(relTA - yawA) < -0.2){
+		value = StrControlPID(value,rpyRate,0.5);
 	}
 	else{
-		value = StrControlPID(rpyRate,0)-90;
+		value = StrControlPID(value,rpyRate,0);
 	}
 	value = LimitValue(value,120,60);
 	return value;
@@ -545,22 +549,22 @@ float StrControlStr(int mode, VectorFloat rpyAngle,VectorFloat rpyRate,float tar
  *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
  * OUTPUT   : 操舵制御指示値(サーボ角)
  ***********************************************************************/
-float StrControlPID(VectorFloat rpyRate,float targetYawRt)
+float StrControlPID(float value, VectorFloat rpyRate,float targetYawRt)
 {
 	float gain = 2.5;
 	float kp = 1*gain,ki = 0.6*gain,kd = 0.125*gain,diff;
 	static float err,lastyawRate;
-	float value = 90;
+
+	!value ? value = 90 : 0 ;
 
 	err  += targetYawRt - rpyRate.z;
 	diff = rpyRate.z - lastyawRate;
 
-	value = 90 + ki * err - (kp * rpyRate.z + kd * diff);
+	value += ki * err - (kp * rpyRate.z + kd * diff);
 
 	value = LimitValue(value,120,60);
 
 	lastyawRate = rpyRate.z;
-
 	return value;
 }
 /************************************************************************
