@@ -61,8 +61,8 @@ double heading, headingDeg;                                       /*方位(rad,d
 double gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
 double altitude,geoid;                                            /*GPS標高(m)、ジオイド高(m)*/
 polVectorFloat3D gpsLatLon;                                       /*GPS緯度・経度(deg)*/
-float puPwm = 92;                                                 /*パワーユニットのPWM*/
-float fStrPwm = 90;                                               /*ステアリングのPWM*/
+int puPwm = 92;                                                 /*パワーユニットのPWM*/
+int fStrPwm = 90;                                               /*ステアリングのPWM*/
 bool started;
 uint32_t timer = millis();
 
@@ -112,18 +112,17 @@ void setup()
 void Task10ms(void)
 {
 	IMUupdate();
-	GPSupdate();
-	//GPSStrControl(0 ,90 * M_PI / 180, heading , 10  * M_PI / 180);
+	IntegratedChassisControl();
 }
 
 /************************************************************************
- * FUNCTION : 10 ms周期処理
+ * FUNCTION : 20 ms周期処理
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
 void Task20ms(void)
 {
-	IntegratedChassisControl();
+	ChassisFinalOutput(puPwm,fStrPwm);
 }
 
 /************************************************************************
@@ -144,7 +143,7 @@ void Task100ms(void)
 void Task1000ms(void)
 {
 	//Serial.println(millis());
-	SetCourseData();
+	SetCourseData(altitude,geoid);
 }
 
 /************************************************************************
@@ -154,41 +153,26 @@ void Task1000ms(void)
  ***********************************************************************/
 void GPSupdate(void)
 {
-	float sampleTime = 0.01f;
-	static uint32_t lastProcessTime;
-
-	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
-
-	if(GPS.altitude.isUpdated() && GPS.altitude.isValid()) {
-		altitude = GPS.altitude.meters();
+	if(GPS.altitude.isUpdated() && GPS.altitude.isValid() && GPS.altitude.meters()) {
+		altitude = (float)GPS.altitude.meters();
 	}
-	if(GPS.geoid.isUpdated() && GPS.geoid.isValid()) {
-		geoid = GPS.geoid.meters();
+	if(GPS.geoid.isUpdated() && GPS.geoid.isValid() && GPS.geoid.meters()) {
+		geoid = (float)GPS.geoid.meters();
 	}
-
-	if(GPS.speed.isUpdated() && GPS.speed.isValid()) {
-		gpsSpeedmps = GPS.speed.mps();
+	if(GPS.speed.isUpdated() && GPS.speed.isValid() && GPS.speed.mps()) {
+		gpsSpeedmps = (float)GPS.speed.mps();
 	}
-	else{//GPS情報受信・更新できない間は縦加速度による速度補正
-		gpsSpeedmps += acc.x * sampleTime;
+	if(GPS.course.isUpdated() && GPS.course.isValid() && GPS.course.rad()) {
+		heading = -(float)GPS.course.rad();			//headingは左旋回方向を正にする
+		headingDeg = heading * 180 / M_PI;
 	}
-	if(gpsSpeedmps > 0.25f && GPS.course.isUpdated() && GPS.course.isValid()) {
-		heading = GPS.course.rad();
-	}
-	else{//GPS情報受信・更新できない・速度が低い間はヨーレートによる方位補正
-		float headingbuf;
-		headingbuf  = heading;
-		headingbuf -= rpyRate.z * sampleTime;
-		heading     = RoundRad(headingbuf);
-	}
-	headingDeg = heading * 180 / M_PI;
-	relAngle = RoundRad(heading - courseAngle);
 	//GPSの緯度経度
 	if(GPS.location.isUpdated() && GPS.location.isValid()) {
-		gpsLatLon.t = GPS.location.lat();
-		gpsLatLon.p = GPS.location.lng();
+		if(GPS.location.lat()){gpsLatLon.t = (float)GPS.location.lat();}
+		if(GPS.location.lng()){gpsLatLon.p = (float)GPS.location.lng();}
 	}
-	pos2D = GetEstPosition(gpsLatLon, altitude, geoid, center, courseAngle);
+	pos2D = getRelPosition(gpsLatLon, altitude, geoid, center, courseAngle);
+	relAngle = RoundRad(heading - courseAngle);
 #ifdef DEBUG_GPS
 	Serial.print("Lat:,"); Serial.print(gpsLatLon.t,8); Serial.print(",Lon:,"); Serial.print(gpsLatLon.p,8);
 	Serial.print(",Alt:,"); Serial.print(altitude); Serial.print(",Geo:,"); Serial.print(geoid);
@@ -200,9 +184,6 @@ void GPSupdate(void)
 	//Serial.print(blh2ecefy(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
 	//Serial.print(",");
 	//Serial.println(blh2ecefz(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
-
-	lastProcessTime = millis();
-
 }
 
 /************************************************************************
@@ -295,8 +276,9 @@ void Initwait(void)
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
-void SetCourseData(void)
+void SetCourseData(float altitude, float geoid)
 {
+if(altitude && geoid){
 
 #ifdef TechCom
 		/*********コースの座標を入力*********/
@@ -332,9 +314,6 @@ void SetCourseData(void)
 
 		courseAngle = atan2(buf0[0].y,buf0[0].x);
 
-		Serial.print("CPbuf0:"); Serial.print(buf0[0].x); Serial.print(","); Serial.println(buf0[0].y);
-		Serial.print("CPbuf1:"); Serial.print(buf0[1].x); Serial.print(","); Serial.println(buf0[1].y);
-
 		for(uint8_t i=0; i<2; i++) {
 			clippingPoint2D[i].x = buf0[i].x * cos(-courseAngle) - buf0[i].y * sin(-courseAngle);
 			clippingPoint2D[i].y = buf0[i].x * sin(-courseAngle) + buf0[i].y * cos(-courseAngle);
@@ -345,6 +324,7 @@ void SetCourseData(void)
 		Serial.print("CenterX:"); Serial.print(center.x);
 		Serial.print("CenterY:"); Serial.println(center.y);
 
+	}
 
 }
 
@@ -446,6 +426,19 @@ VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
 	return ecef;
 }
 
+
+/************************************************************************
+ * FUNCTION : サーボ出力(テスト中)
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
+void ChassisFinalOutput(int puPwm,int fStrPwm)
+{
+	PowUnit.write(puPwm);
+	FStr.write(fStrPwm);
+}
+
+
 /************************************************************************
  * FUNCTION : シャシ統合制御(テスト中)
  * INPUT    : なし
@@ -457,26 +450,24 @@ void IntegratedChassisControl(void)
 	static float targetAngleCP,turnAngle;
 	float sampleTime = 0.01f;
 	static uint32_t lastProcessTime;
-	lastProcessTime == 0 ? sampleTime = 0.02f : sampleTime = (millis() - lastProcessTime) * 0.001f;
+	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
 
 	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
-		PowUnit.write(87);
+		puPwm = 87;
 	}
 	else{
-		PowUnit.write(BrakeCtrl(0,gpsSpeedmps,5));
+		puPwm = BrakeCtrl(0,gpsSpeedmps,5);
 	}
 	if(clippingPoint2D[0].x < pos2D.x && abs(turnAngle) < 3.14) {
 		if(cos(relAngle) < 0) {
-			targetAngleCP = -atan2((clippingPoint2D[1].y - pos2D.y),(clippingPoint2D[1].x - pos2D.x));
-			if(sin(relAngle) < 0){posModex = 0;}
+			targetAngleCP = atan2((clippingPoint2D[1].y - pos2D.y),(clippingPoint2D[1].x - pos2D.x));
 		}
 		else{posModex = 1;}
 		turnAngle += rpyRate.z * sampleTime;
 	}
 	else if(pos2D.x < clippingPoint2D[1].x && abs(turnAngle) < 3.14) {
 		if(cos(relAngle) > 0) {
-			targetAngleCP = -atan2((clippingPoint2D[0].y - pos2D.y),(clippingPoint2D[0].x - pos2D.x));
-			if(sin(relAngle) < 0){posModex = 0;}
+			targetAngleCP = atan2((clippingPoint2D[0].y - pos2D.y),(clippingPoint2D[0].x - pos2D.x));
 		}
 		else{posModex = -1;}
 		turnAngle += rpyRate.z * sampleTime;
@@ -523,7 +514,7 @@ float StrControl(float targetAngleCP,VectorFloat rpyRate,int forceCtrlMode)
 			else{
 				controlValue = StrControlStraight(controlValue,targetAngleCP,rpyRate,strSpeedGain);
 			}
-			controlValue = LimitValue(controlValue,100,80);
+			controlValue = LimitValue(controlValue,105,75);
 		}
 	if(forceCtrlMode == 1){
 		if(abs(sin(targetAngleCP - relAngle)) > sin(thresholdAngleRad)) {
@@ -720,6 +711,9 @@ void loop()
 
 void serialEvent1(){
 	while (Serial1.available() > 0) {
-		GPS.encode(Serial1.read());
+		if(GPS.encode(Serial1.read())){
+			GPSupdate();
+			break;
+		}
 	}
 }
