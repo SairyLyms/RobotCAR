@@ -451,7 +451,7 @@ void IntegratedChassisControl(void)
 	!targetAngleCP ? targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x) : 0;
 	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
 	mode > 0 ? puPwm =  puPwm = 87 : BrakeCtrl(0,gpsSpeedmps,5);
-	switch (3) {
+	switch (mode) {
 	case 1: fStrPwm = (int)StrControlPIDAng(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
 	case 2: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,-1);       				targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x); break;
 	case 3: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0);                targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x); break;
