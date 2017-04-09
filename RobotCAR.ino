@@ -8,7 +8,8 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <SPI.h>
-
+#include <TaskScheduler.h>
+#include <Filters.h>
 /************************************************************************/
 /*	Macro Definition													*/
 /************************************************************************/
@@ -49,6 +50,7 @@ MPU6050 IMU;
 HMC5883L MAG;
 Madgwick AHRS;
 Servo FStr,PowUnit;
+Scheduler runner;
 /*座標系は安部先生の本に従う(右手系)*/
 VectorFloat rpyAngle;
 VectorFloat rpyRate;
@@ -64,12 +66,21 @@ polVectorFloat3D gpsLatLon;                                       /*GPS緯度・
 int puPwm = 92;                                                 /*パワーユニットのPWM*/
 int fStrPwm = 90;                                               /*ステアリングのPWM*/
 bool started;
-uint32_t timer = millis();
 
 // ================================================================
-// ===               INTERRUPT DETECTION ROUTINE                ===
+// ===               				Prototype Def.			                ===
 // ================================================================
-
+void Task10ms(void);
+void Task20ms(void);
+void Task100ms(void);
+void Task1000ms(void);
+// ================================================================
+// ===               						Tasks						                ===
+// ================================================================
+Task T10(10, TASK_FOREVER, &Task10ms, &runner,true);
+Task T20(20, TASK_FOREVER, &Task20ms, &runner,true);
+Task T100(100, TASK_FOREVER, &Task100ms, &runner,true);
+Task T1000(1000, TASK_FOREVER, &Task1000ms, &runner,true);
 // ================================================================
 // ===                       Course Variable                    ===
 // ================================================================
@@ -101,6 +112,7 @@ void setup()
 	FStr.attach(3);
 	PowUnit.attach(2);
 	Serial.flush();
+	runner.startNow();
 	Initwait();
 }
 
@@ -197,11 +209,10 @@ void IMUupdate(void)
 	float afx,afy,afz;
 	int aix, aiy, aiz;
 	int gix, giy, giz;
-	float sampleTime = 0.01f;
-	static uint32_t lastProcessTime;
+	float sampleTime;
+	sampleTime = T10.getInterval() * 0.001;
 	VectorFloat rpyAngleDeg;
-
-	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
+	//FilterOnePole lowpassFilter(LOWPASS, 5.0);
 
 	IMU.getMotion6(&aix, &aiy, &aiz, &gix, &giy, &giz);
 
@@ -214,9 +225,9 @@ void IMUupdate(void)
 
 	AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
 
-	if(rpyAngle.calcRad2Deg().x) {rpyRate.x = LimitValue((AHRS.getRoll()-rpyAngle.calcRad2Deg().x)/sampleTime,1000.0f,-1000.0f) * M_PI/180;}
-	if(rpyAngle.calcRad2Deg().y) {rpyRate.y = LimitValue((AHRS.getPitch()-rpyAngle.calcRad2Deg().y)/sampleTime,1000.0f,-1000.0f) * M_PI/180;}
-	if(rpyAngle.calcRad2Deg().z) {rpyRate.z = LimitValue((AHRS.getYaw()-rpyAngle.calcRad2Deg().z)/sampleTime,1000.0f,-1000.0f) * M_PI/180;}
+	if(rpyAngle.calcRad2Deg().x) {rpyRate.x = (LimitValue((AHRS.getRoll()-rpyAngle.calcRad2Deg().x)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
+	if(rpyAngle.calcRad2Deg().y) {rpyRate.y = (LimitValue((AHRS.getPitch()-rpyAngle.calcRad2Deg().y)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
+	if(rpyAngle.calcRad2Deg().z) {rpyRate.z = (LimitValue((AHRS.getYaw()-rpyAngle.calcRad2Deg().z)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
 
 	rpyAngle.x = AHRS.getRoll() * M_PI/180; //ロール角
 	rpyAngle.y = AHRS.getPitch() * M_PI/180; //ピッチ角
@@ -246,7 +257,6 @@ void IMUupdate(void)
 	Serial.print("yaw: ");
 	Serial.println(rpyRate.z);
 #endif
-	lastProcessTime = millis();
 }
 
 float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
@@ -254,6 +264,21 @@ float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
 	float buf;
 	buf = min(inputValue,upperLimitValue);
 	buf = max(buf,lowerLimitValue);
+	return buf;
+}
+
+float Deadzone(float inputValue,float upperDeadzone,float lowerDeadzone,float center)
+{
+	float buf;
+	if(inputValue>upperDeadzone){
+		buf = inputValue;
+	}
+	else if(inputValue<lowerDeadzone){
+		buf = inputValue;
+	}
+	else{
+		buf = center;
+	}
 	return buf;
 }
 
@@ -452,18 +477,20 @@ void IntegratedChassisControl(void)
 	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
 	mode > 0 ? puPwm =  puPwm = 87 : BrakeCtrl(0,gpsSpeedmps,5);
 	switch (mode) {
-	case 1: fStrPwm = (int)StrControlPIDAng(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
-	case 2: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,-1);       				targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x); break;
-	case 3: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0);                targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x); break;
-	case 4: fStrPwm = (int)StrControlPIDAng(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
-	case 5: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,1);                targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x); break;
-	case 6: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0);                targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x); break;
+	case 1: fStrPwm = //(int)StrControlPID(fStrPwm,rpyRate,0.0f);break;
+										(int)StrControlPIDAng(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
+	case 2: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,1.0f);       				targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x); break;
+	case 3: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0.0f);               targetAngleCP = atan2(clippingPoint2D[1].y - pos2D.y,clippingPoint2D[1].x - pos2D.x); break;
+	case 4: fStrPwm = //(int)StrControlPID(fStrPwm,rpyRate,0.0f);break;
+	 									(int)StrControlPIDAng(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle); break;
+	case 5: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,-1.0f);                targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x); break;
+	case 6: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,0.0f);                targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x); break;
 	default: fStrPwm = 90;
 	}
-	#if 1
+	#if 0
 	#ifdef DEBUG
 	Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y); Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
-	Serial.print(",RelAngle:,"); Serial.print(relAngle); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
+	Serial.print(",yawRate:,"); Serial.print(rpyRate.z); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
 	Serial.print("Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
 	#endif
 	#endif
@@ -478,37 +505,28 @@ void IntegratedChassisControl(void)
  ***********************************************************************/
 int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat clippingPoint2D[],float relAngle,VectorFloat rpyRate)
 {
-	float sampleTime = 0.01f;
-	static uint32_t lastProcessTime;
-	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
-
-	int8_t mode;
+	static int8_t mode;
+	float sampleTime;
 	static float turnAngle;
+
+	sampleTime = T10.getInterval() * 0.001;
 
 	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
 		if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x) {
 			cos(relAngle) > 0 ? mode = 1 : mode = 4;
-			if( -1 < pos2D.x && pos2D.x < 1 ) {
-				turnAngle = 0;
-			}
+			if( -1 < pos2D.x && pos2D.x < 1 ) {turnAngle = 0;}
 		}
-		else if(clippingPoint2D[0].x < pos2D.x) {
-			turnAngle += rpyRate.z * sampleTime;
-			abs(turnAngle) < 3.14 ? mode = 2 : mode = 3;
-		}
-		else if(pos2D.x < clippingPoint2D[1].x) {
-			turnAngle += rpyRate.z * sampleTime;
-			abs(turnAngle) < 3.14 ? mode = 5 : mode = 6;
-		}
-		else{
-			mode = 0;
+		if(mode != 3 && clippingPoint2D[0].x < pos2D.x) {mode = 2;}
+		if(mode != 6 && pos2D.x < clippingPoint2D[1].x) {mode = 5;}
+		if(mode == 2 || mode == 5){
+		turnAngle += rpyRate.z * sampleTime;
+		abs(turnAngle) > 3.14 ? mode += 1 : 0;
 		}
 	}
 	else{
 		mode = -1;
 	}
-	lastProcessTime = millis();
-
+	//Serial.print(",Time:,"); Serial.print(lastProcessTime);
 	return mode;
 }
 
@@ -520,28 +538,32 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
  ***********************************************************************/
 float StrControlPID(float value, VectorFloat rpyRate,float targetYawRt)
 {
-	float sampleTime = 0.01f;
-	static uint32_t lastProcessTime;
-	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
-
-	float kp = 2,ki = 0.001,kd = 20,diff;
+	float sampleTime;
+	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
 	static float err,lastyawRate;
 
 	!value ? value = 90 : 0;
+	sampleTime = T10.getInterval() * 0.001;
+	err  += (targetYawRt - rpyRate.z) * sampleTime;
+	diff = 	(rpyRate.z - lastyawRate) / sampleTime;
 
-	err  += targetYawRt - rpyRate.z;
-	diff = rpyRate.z - lastyawRate;
-
-	value += ki * (1/(sampleTime)) * err - (kp * rpyRate.z + kd * sampleTime * diff);
+  value +=  kp * (err/ti - (rpyRate.z + td * diff));
 
 	value = LimitValue(value,120,60);
 
 	lastyawRate = rpyRate.z;
+
+#if 1
+	#ifdef DEBUG
+	Serial.print("Time,");Serial.print(millis());
+	Serial.print(",err:,"); Serial.print(err);Serial.print(",diff:,"); Serial.print(diff); Serial.print(",TGTYawRt:,"); Serial.print(targetYawRt); Serial.print(",YawRt:,"); Serial.print(rpyRate.z);
+	Serial.print(",value:,"); Serial.println(value);
+	#endif
+#endif
+
 	return value;
 
-	lastProcessTime = millis();
 }
-
 
 /************************************************************************
  * FUNCTION : 操舵制御指示値演算(ヨー角フィードバック)
@@ -551,32 +573,33 @@ float StrControlPID(float value, VectorFloat rpyRate,float targetYawRt)
  ***********************************************************************/
 float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relAngle)
 {
-
-	float kp = 1,ki = 0.6,kd = 0.125;
-	float yawA,relTA,diff;
-	static float err[3], lastyawA,yawAOff,relAOff;
+	float sampleTime;
+	float kp = 5,ti = 0.4 ,td = 0.1;
+	float relTA,diff;
+	static float err[3], yawA,relTAOff,lastvalue;
 	static int lastMode;
 
 	!value ? value = 90 : 0;
+	sampleTime = T10.getInterval() * 0.001;
 
 	if(mode != lastMode) {
-		yawAOff = rpyAngle.z;
-		relAOff = relAngle;
+		yawA -= rpyAngle.z;
+		relTAOff = relAngle;
 	}
-	yawA =  RoundRad(rpyAngle.z - yawAOff);
-	relTA = RoundRad(targetAngleCP - relAOff);
-	diff =  yawA - lastyawA;
-	err[0] = RoundRadPosNeg(RoundRad(relTA - yawA));
-	abs(sin(yawA-relTA)) < 0.1 ? value = StrControlPID(value,rpyRate,0) : 0;
-	value += kp * (err[0]-err[1] + ki * err[0] + kd * (err[0]- 2 * err[1] + err[2]));
+	yawA += rpyRate.z * sampleTime;
+	relTA = RoundRad(targetAngleCP - relTAOff);
+	err[0] = relTA - yawA;
 
+	if(err[2] != 0){
+	value = lastvalue + kp * ( err[0] - err[1] + sampleTime / ti * err[0] + td / sampleTime * (err[0] - 2 * err[1] + err[2]));
+	}
 	value = LimitValue(value,120,60);
-
 	err[1] = err[0];
 	err[2] = err[1];
-	lastyawA = yawA;
+	lastvalue = value;
 	lastMode = mode;
-#if 0
+
+#if 1
 	#ifdef DEBUG
 	Serial.print(",Mode:,"); Serial.print(mode);
 	Serial.print(",err:,"); Serial.print(err[0]); Serial.print(",yawA:,"); Serial.print(yawA); Serial.print(",TgtAngle:,"); Serial.print(relTA);
@@ -585,6 +608,17 @@ float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat
 #endif
 	return value;
 }
+
+/************************************************************************
+ * FUNCTION : 速度コントロール
+ * INPUT    :
+ *
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+float SpdControlPID(void)
+{
+}
+
 
 int BrakeCtrl(float targetSpeed, float nowSpeedmps, float maxDecelAx)
 {
@@ -651,36 +685,9 @@ float RoundDeg(float x) //角度を表す変数を0～360degの範囲に収め�
 	}
 	return x;
 }
-
-
-void TaskMain(void)
-{
-	volatile uint8_t cnt2,cnt10,cnt100;
-	if (timer > millis()) timer = millis();
-	if (millis() - timer >= 10) {
-		Task10ms();
-		if(cnt2>=2) {
-			Task20ms();
-			cnt2=0;
-		}
-		if(cnt10>=10) {
-			Task100ms();
-			cnt10=0;
-		}
-		if(cnt100>=100) {
-			Task1000ms();
-			cnt100=0;
-		}
-		timer = millis();
-		cnt2++;
-		cnt10++;
-		cnt100++;
-	}
-}
-
 void loop()
 {
-	TaskMain();
+	runner.execute();
 }
 
 void serialEvent1(){
