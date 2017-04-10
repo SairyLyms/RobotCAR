@@ -39,11 +39,11 @@ VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 #define DEBUG
-//#define TechCom											/*テストコース設定*/
+#define TechCom											/*テストコース設定*/
 
 #ifndef TechCom
 //#define HappiTow
-#define Garden
+//#define Garden
 #endif
 
 TinyGPSPlus GPS;
@@ -308,16 +308,16 @@ void SetCourseData(float altitude, float geoid)
 
 #ifdef TechCom
 		/*********コースの座標を入力*********/
-		clippingPoint[0].t = 36.57592010f;  clippingPoint[1].t = 36.57586669f;/*緯度設定*/
-		clippingPoint[0].p = 140.01605224f;  clippingPoint[1].p = 140.01580810f;/*経度設定*/
+		clippingPoint[0].t = 36.56809997f;  clippingPoint[1].t = 36.57586669f;/*緯度設定*/
+		clippingPoint[0].p = 139.99588012f;  clippingPoint[1].p = 140.01580810f;/*経度設定*/
 		/*******立ち入り禁止エリア設定*******/
 		pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
 		pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
 		/********************************/
 #elif defined HappiTow
 		/*********コースの座標を入力*********/
-		clippingPoint[0].t = 36.56811523f;  clippingPoint[1].t = 36.56797790f;    /*緯度設定*/
-		clippingPoint[0].p = 139.99578857f;  clippingPoint[1].p = 139.99578857f;  /*経度設定*/
+		clippingPoint[0].t = 36.56809997;  clippingPoint[1].t = 36.56797027;    /*緯度設定*/
+		clippingPoint[0].p = 139.99595642f;  clippingPoint[1].p = 139.99595642f;  /*経度設定*/
 		/*******立ち入り禁止エリア設定*******/
 		pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
 		pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
@@ -482,30 +482,35 @@ void IntegratedChassisControl(void)
 {
 	static float targetAngleCP,targetYawRtCP;
 	int8_t mode;
+	VectorFloat targetpoint;
 	!targetAngleCP ? targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x) : 0;
 	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
 	mode > 0 ? puPwm =  puPwm = 87 : BrakeCtrl(0,gpsSpeedmps,5);
-	switch (1) {
-	case 1: targetYawRtCP = CalcTargetYawRt(pos2D,clippingPoint2D[0]);
-					fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,targetYawRtCP);
+	switch (mode) {
+	case 1: targetpoint.x = clippingPoint2D[0].x+3;
+					targetpoint.y = clippingPoint2D[0].y;
+					targetYawRtCP = CalcTargetYawRt(mode,pos2D,targetpoint);
+					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					break;
 
-	case 2: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,1.0f);
+	case 2: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,1.0f);
 					break;
 
-	case 3: targetYawRtCP = CalcTargetYawRt(pos2D,clippingPoint2D[1]);
-					fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,targetYawRtCP);
+	case 3: targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[1]);
+					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					break;
 
-	case 4: targetYawRtCP = CalcTargetYawRt(pos2D,clippingPoint2D[1]);
-	 				fStrPwm =	(int)StrControlPIDAng(fStrPwm,mode, rpyAngle,rpyRate,targetAngleCP,relAngle);
+	case 4: targetpoint.x = clippingPoint2D[1].x-3;
+					targetpoint.y = clippingPoint2D[1].y;
+					targetYawRtCP = CalcTargetYawRt(mode,pos2D,targetpoint);
+					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					break;
 
-	case 5: fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,-1.0f);
+	case 5: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,-1.0f);
 					break;
 
-	case 6: targetYawRtCP = CalcTargetYawRt(pos2D,clippingPoint2D[0]);
-					fStrPwm = (int)StrControlPID(fStrPwm,rpyRate,targetYawRtCP);
+	case 6: targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[0]);
+					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					break;
 
 	default:fStrPwm = 90;
@@ -515,7 +520,7 @@ void IntegratedChassisControl(void)
 	#ifdef DEBUG
 	Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y); Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
 	Serial.print(",TgtYawRt:,"); Serial.print(targetYawRtCP);Serial.print(",yawRate:,"); Serial.print(rpyRate.z,6); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
-	Serial.print("Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
+	Serial.print(",Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
 	#endif
 	#endif
 }
@@ -531,20 +536,19 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
 {
 	static int8_t mode;
 	float sampleTime;
-	static float turnAngle;
+	static float headingOffset;
 
 	sampleTime = T10.getInterval() * 0.001;
 
 	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
 		if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x) {
 			cos(relAngle) > 0 ? mode = 1 : mode = 4;
-			if( -1 < pos2D.x && pos2D.x < 1 ) {turnAngle = 0;}
+			if( -1 < pos2D.x && pos2D.x < 1 ) {headingOffset = 0;}
 		}
-		if(mode != 3 && clippingPoint2D[0].x < pos2D.x) {mode = 2;}
-		if(mode != 6 && pos2D.x < clippingPoint2D[1].x) {mode = 5;}
+		if((mode != 2 || mode != 3) && clippingPoint2D[0].x < pos2D.x) {mode = 2; headingOffset = heading;}
+		if((mode != 5 || mode != 6) && pos2D.x < clippingPoint2D[1].x) {mode = 5; headingOffset = heading;}
 		if(mode == 2 || mode == 5){
-		turnAngle += rpyRate.z * sampleTime;
-		abs(turnAngle) > 3.14 ? mode += 1 : 0;
+		cos(heading - headingOffset) < -0.8 ? mode += 1 : 0;
 		}
 	}
 	else{
@@ -559,8 +563,16 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
-float CalcTargetYawRt(VectorFloat pos2D, VectorFloat targetclippingPoint2D){
-return 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
+float CalcTargetYawRt(int8_t mode, VectorFloat pos2D, VectorFloat targetclippingPoint2D){
+float TargetYawRt;
+
+if(mode == 1 || mode == 6){
+	TargetYawRt = 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
+}
+else{
+	TargetYawRt = - 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
+}
+return TargetYawRt;
 }
 
 
@@ -570,12 +582,16 @@ return 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - 
  *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
  * OUTPUT   : 操舵制御指示値(サーボ角)
  ***********************************************************************/
-float StrControlPID(float value, VectorFloat rpyRate,float targetYawRt)
+float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYawRt)
 {
 	float sampleTime;
-	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
+	float kp = 2.6,ti = 0.4 ,td = 0.1,diff;
 	static float err,lastyawRate;
-
+	static int8_t lastMode;
+	if(mode != lastMode){
+		err = 0;
+		lastyawRate = 0;
+	}
 	!value ? value = 90 : 0;
 	sampleTime = T10.getInterval() * 0.001;
 	err  += (targetYawRt - rpyRate.z) * sampleTime;
@@ -586,7 +602,7 @@ float StrControlPID(float value, VectorFloat rpyRate,float targetYawRt)
 	value = LimitValue(value,120,60);
 
 	lastyawRate = rpyRate.z;
-
+	lastMode = mode;
 #if 0
 	#ifdef DEBUG
 	Serial.print("Time,");Serial.print(millis());
