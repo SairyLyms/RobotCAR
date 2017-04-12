@@ -37,13 +37,13 @@ polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
 //#define DEBUG_IMU
-//#define DEBUG_GPS
-#define DEBUG
-#define TechCom											/*テストコース設定*/
+#define DEBUG_GPS
+//#define DEBUG
+//#define TechCom											/*テストコース設定*/
 
 #ifndef TechCom
 //#define HappiTow
-//#define Garden
+#define Garden
 #endif
 
 TinyGPSPlus GPS;
@@ -324,8 +324,8 @@ void SetCourseData(float altitude, float geoid)
 		/********************************/
 #elif defined Garden
 				/*********コースの座標を入力*********/
-				clippingPoint[0].t = 36.578025f;  clippingPoint[1].t = 36.578055f;    /*緯度設定*/
-				clippingPoint[0].p = 140.014897f;  clippingPoint[1].p = 140.014981f;  /*経度設定*/
+				clippingPoint[0].t = 36.57806396f;  clippingPoint[1].t = 36.57814788f;    /*緯度設定*/
+				clippingPoint[0].p = 140.01487731f;  clippingPoint[1].p = 140.01506042f;  /*経度設定*/
 				/*******立ち入り禁止エリア設定*******/
 				pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
 				pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
@@ -585,7 +585,7 @@ return TargetYawRt;
 float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYawRt)
 {
 	float sampleTime;
-	float kp = 2.6,ti = 0.4 ,td = 0.1,diff;
+	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
 	static float err,lastyawRate;
 	static int8_t lastMode;
 	if(mode != lastMode){
