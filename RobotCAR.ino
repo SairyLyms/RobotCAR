@@ -226,9 +226,14 @@ void IMUupdate(void)
 
 	AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
 
+#if 0//角速度導出方法の変更
 	if(rpyAngle.calcRad2Deg().x) {rpyRate.x = (LimitValue((AHRS.getRoll()-rpyAngle.calcRad2Deg().x)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
 	if(rpyAngle.calcRad2Deg().y) {rpyRate.y = (LimitValue((AHRS.getPitch()-rpyAngle.calcRad2Deg().y)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
 	if(rpyAngle.calcRad2Deg().z) {rpyRate.z = (LimitValue((AHRS.getYaw()-rpyAngle.calcRad2Deg().z)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
+#endif
+	rpyRate.x = LimitValue(CalcRPYRate(rpyAngle.x,AHRS.getRoll() * M_PI/180,sampleTime),1000.0f,-1000.0f);
+	rpyRate.y = LimitValue(CalcRPYRate(rpyAngle.y,AHRS.getPitch() * M_PI/180,sampleTime),1000.0f,-1000.0f);
+	rpyRate.z = LimitValue(CalcRPYRate(rpyAngle.z,AHRS.getYaw() * M_PI/180,sampleTime),1000.0f,-1000.0f);
 
 	rpyAngle.x = AHRS.getRoll() * M_PI/180; //ロール角
 	rpyAngle.y = AHRS.getPitch() * M_PI/180; //ピッチ角
@@ -258,6 +263,11 @@ void IMUupdate(void)
 	Serial.print("yaw: ");
 	Serial.println(rpyRate.z);
 #endif
+}
+
+float CalcRPYRate(float preAngle,float nowAngle,float sampleTime)
+{
+  return atan2(sin(nowAngle)-sin(preAngle),cos(nowAngle)-cos(preAngle))/sampleTime;
 }
 
 float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
@@ -316,8 +326,8 @@ void SetCourseData(float altitude, float geoid)
 		/********************************/
 #elif defined HappiTow
 		/*********コースの座標を入力*********/
-		clippingPoint[0].t = 36.56809997;  clippingPoint[1].t = 36.56797027;    /*緯度設定*/
-		clippingPoint[0].p = 139.99595642f;  clippingPoint[1].p = 139.99595642f;  /*経度設定*/
+		clippingPoint[0].t = 36.56794357f;  clippingPoint[1].t = 36.56803894f;    /*緯度設定*/
+		clippingPoint[0].p = 139.99578857f;  clippingPoint[1].p = 139.99578857f;  /*経度設定*/
 		/*******立ち入り禁止エリア設定*******/
 		pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
 		pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
@@ -485,7 +495,7 @@ void IntegratedChassisControl(void)
 	VectorFloat targetpoint;
 	!targetAngleCP ? targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x) : 0;
 	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
-	mode > 0 ? puPwm =  puPwm = 87 : BrakeCtrl(0,gpsSpeedmps,5);
+	mode > 0 ? puPwm =  puPwm = 86 : BrakeCtrl(0,gpsSpeedmps,5);
 	switch (mode) {
 	case 1: targetpoint.x = clippingPoint2D[0].x+3;
 					targetpoint.y = clippingPoint2D[0].y;
@@ -536,21 +546,26 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
 {
 	static int8_t mode;
 	float sampleTime;
-	static float headingOffset;
+	static float turningTime;
 
 	sampleTime = T10.getInterval() * 0.001;
 
 	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
-		if(clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x) {
+		if((mode != 1 || mode != 4) && clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x) {
 			cos(relAngle) > 0 ? mode = 1 : mode = 4;
-			if( -1 < pos2D.x && pos2D.x < 1 ) {headingOffset = 0;}
+			if( -1 < pos2D.x && pos2D.x < 1) {turningTime = 0;}
 		}
-		if((mode != 2 || mode != 3) && clippingPoint2D[0].x < pos2D.x) {mode = 2; headingOffset = heading;}
-		if((mode != 5 || mode != 6) && pos2D.x < clippingPoint2D[1].x) {mode = 5; headingOffset = heading;}
-		if(mode == 2 || mode == 5){
-		cos(heading - headingOffset) < -0.8 ? mode += 1 : 0;
+		if((mode != 2 || mode != 3) && clippingPoint2D[0].x < pos2D.x) {mode = 2;}
+		if((mode != 5 || mode != 6) && pos2D.x < clippingPoint2D[1].x) {mode = 5;}
+		if(mode == 2){
+			turningTime += sampleTime;
+			cos(relAngle) < -0.9 || turningTime > 3.3f ? mode += 1 : 0;
 		}
-	}
+		if(mode == 5){
+			turningTime += sampleTime;
+			cos(relAngle) > 0.9 || turningTime > 3.3f ? mode += 1 : 0;
+		}
+		}
 	else{
 		mode = -1;
 	}
