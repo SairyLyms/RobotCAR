@@ -1,6 +1,7 @@
 /************************************************************************/
 /*	Include Files														*/
 /************************************************************************/
+#include <NMEAGPS.h>
 #include <TinyGPS++.h>
 #include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
@@ -33,19 +34,32 @@
 // ===                       Course Data                        ===
 // ================================================================
 VectorFloat center;
+polVectorFloat3D distToCP[2];
 polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
 //#define DEBUG_IMU
 #define DEBUG_GPS
 //#define DEBUG
-//#define TechCom											/*テストコース設定*/
-
+#define TechCom											/*テストコース設定*/
 #ifndef TechCom
+//#define Garden
 //#define HappiTow
-#define Garden
 #endif
+#ifdef TechCom
+NeoGPS::Location_t cp1(365759506L,1400158539L);
+NeoGPS::Location_t cp2(365760193L,1400160370L);
 
+#elif defined Garden
+NeoGPS::Location_t cp1(365780640L,1400148773L);
+NeoGPS::Location_t cp2(365781479L,1400150604L);
+#elif defined HappiTow
+NeoGPS::Location_t cp1(365679436L,1399957886L);
+NeoGPS::Location_t cp2(365680389L,1399957886L);
+#endif
+NeoGPS::Location_t cp[2] = {cp1,cp2};
+static NMEAGPS  gps;
+static gps_fix  fix;
 TinyGPSPlus GPS;
 MPU6050 IMU;
 HMC5883L MAG;
@@ -59,10 +73,10 @@ VectorFloat acc;                                                  /*X,Y,Z加速�
 VectorFloat spd;
 VectorFloat dist;
 VectorFloat pos2D;
-float relAngle;                                                   /*コース中心からの相対位置,角度*/
-double heading, headingDeg;                                       /*方位(rad,deg)*/
-double gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
-double altitude,geoid;                                            /*GPS標高(m)、ジオイド高(m)*/
+float relAngleTgt[2];                                                   /*相対位置,角度*/
+float heading, headingDeg;                         								/*方位(rad,deg),方位差*/
+float gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
+float altitude,geoid;                                            /*GPS標高(m)、ジオイド高(m)*/
 polVectorFloat3D gpsLatLon;                                       /*GPS緯度・経度(deg)*/
 int puPwm = 92;                                                 /*パワーユニットのPWM*/
 int fStrPwm = 90;                                               /*ステアリングのPWM*/
@@ -166,31 +180,34 @@ void Task1000ms(void)
  ***********************************************************************/
 void GPSupdate(void)
 {
-	if(GPS.altitude.isUpdated() && GPS.altitude.isValid() && GPS.altitude.meters()) {
-		altitude = (float)GPS.altitude.meters();
+	polVectorFloat3D centerPos;
+	fix = gps.read();
+	if(fix.valid.time){
 	}
-	if(GPS.geoid.isUpdated() && GPS.geoid.isValid() && GPS.geoid.meters()) {
-		geoid = (float)GPS.geoid.meters();
-	}
-	if(GPS.speed.isUpdated() && GPS.speed.isValid() && GPS.speed.mps()) {
-		gpsSpeedmps = (float)GPS.speed.mps();
-	}
-	if(GPS.course.isUpdated() && GPS.course.isValid() && GPS.course.rad()) {
-		heading = -(float)GPS.course.rad();                     //headingは左旋回方向を正にする
-		headingDeg = heading * 180 / M_PI;
-	}
-	//GPSの緯度経度
-	if(GPS.location.isUpdated() && GPS.location.isValid()) {
-		if(GPS.location.lat()) {gpsLatLon.t = (float)GPS.location.lat();}
-		if(GPS.location.lng()) {gpsLatLon.p = (float)GPS.location.lng();}
-	}
-	pos2D = getRelPosition(gpsLatLon, altitude, geoid, center, courseAngle);
-	relAngle = RoundRad(heading - courseAngle);
+	if(fix.valid.location) {
+		NeoGPS::Location_t cpAway[2] = {cp[0],cp[1]};
+		for(int8_t i=0;i<2;i++){
+			cpAway[i].OffsetBy( 10.0 / NeoGPS::Location_t::EARTH_RADIUS_KM, fix.location.BearingTo(cp[i]));
+			distToCP[i].r = fix.location.DistanceKm(cp[i]) * 1000.0f;
+			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //直進時制御用のリファレンス方位
+			distToCP[i].p = fix.location.BearingTo(cp[i]); //旋回開始判定用の方位
+			}
+		if(distToCP[0].r && distToCP[0].t && distToCP[1].r && distToCP[1].t){
+				centerPos.r = (0.5*(distToCP[0].r + distToCP[1].r)); //コース中央までの距離
+				centerPos.t = (0.5*(distToCP[0].t + distToCP[1].t)); //コース中央までの方位
+			}
+		}
+	fix.valid.speed ? gpsSpeedmps = fix.speed() * 0.514444 : 0;
+	if(fix.valid.heading){
+			heading = fix.heading() * 0.01745329251;
+			for(int8_t i=0;i<2;i++){
+				distToCP[i].t ? relAngleTgt[i] = RoundRadPosNeg(heading-distToCP[i].t) : 0;
+			}
+		}
 #ifdef DEBUG_GPS
-	Serial.print("Lat:,"); Serial.print(gpsLatLon.t,8); Serial.print(",Lon:,"); Serial.print(gpsLatLon.p,8);
-	Serial.print(",Alt:,"); Serial.print(altitude); Serial.print(",Geo:,"); Serial.print(geoid);
-	Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y);
-	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",RelAngle:,"); Serial.print(relAngle); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+	Serial.print("Lat:,"); Serial.print(fix.latitude(),8); Serial.print(",Lon:,"); Serial.print(fix.longitude(),8);
+	Serial.print(",PosN:,"); Serial.print(centerPos.r * cos(centerPos.t)); Serial.print(",PosE:,"); Serial.print(centerPos.r * sin(centerPos.t));
+	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
 #endif
 	//Serial.print(blh2ecefx(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
 	//Serial.print(",");
@@ -314,64 +331,8 @@ void Initwait(void)
  ***********************************************************************/
 void SetCourseData(float altitude, float geoid)
 {
-	if(altitude && geoid) {
-
-#ifdef TechCom
-		/*********コースの座標を入力*********/
-		clippingPoint[0].t = 36.56809997f;  clippingPoint[1].t = 36.57586669f;/*緯度設定*/
-		clippingPoint[0].p = 139.99588012f;  clippingPoint[1].p = 140.01580810f;/*経度設定*/
-		/*******立ち入り禁止エリア設定*******/
-		pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
-		pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
-		/********************************/
-#elif defined HappiTow
-		/*********コースの座標を入力*********/
-		clippingPoint[0].t = 36.56794357f;  clippingPoint[1].t = 36.56803894f;    /*緯度設定*/
-		clippingPoint[0].p = 139.99578857f;  clippingPoint[1].p = 139.99578857f;  /*経度設定*/
-		/*******立ち入り禁止エリア設定*******/
-		pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
-		pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
-		/********************************/
-#elif defined Garden
-				/*********コースの座標を入力*********/
-				clippingPoint[0].t = 36.57806396f;  clippingPoint[1].t = 36.57814788f;    /*緯度設定*/
-				clippingPoint[0].p = 140.01487731f;  clippingPoint[1].p = 140.01506042f;  /*経度設定*/
-				/*******立ち入り禁止エリア設定*******/
-				pointKeepOut[0].x = -20;   pointKeepOut[1].x = 20;/*立ち入り禁止エリア設定x(前後)方向*/
-				pointKeepOut[0].y = -20;   pointKeepOut[1].y = 20;/*立ち入り禁止エリア設定y(横)方向*/
-				/********************************/
-#endif
-
-		VectorFloat buf0[2];
-
-		for(uint8_t i=0; i<2; i++) {
-			buf0[i] = blh2ecef(clippingPoint[i],altitude,geoid);
-		}
-
-		center.x = 0.5*(buf0[1].x+buf0[0].x);
-		center.y = 0.5*(buf0[1].y+buf0[0].y);
-
-		for(uint8_t i=0; i<2; i++) {
-			buf0[i].x = buf0[i].x - center.x;
-			buf0[i].y = buf0[i].y - center.y;
-		}
-
-		courseAngle = atan2(buf0[0].y,buf0[0].x);
-
-		for(uint8_t i=0; i<2; i++) {
-			clippingPoint2D[i].x = buf0[i].x * cos(-courseAngle) - buf0[i].y * sin(-courseAngle);
-			clippingPoint2D[i].y = buf0[i].x * sin(-courseAngle) + buf0[i].y * cos(-courseAngle);
-		}
-
-		Serial.print("CP0:"); Serial.print(clippingPoint2D[0].x); Serial.print(","); Serial.println(clippingPoint2D[0].y);
-		Serial.print("CP1:"); Serial.print(clippingPoint2D[1].x); Serial.print(","); Serial.println(clippingPoint2D[1].y);
-		Serial.print("CenterX:"); Serial.print(center.x);
-		Serial.print("CenterY:"); Serial.println(center.y);
-
-	}
 
 }
-
 /************************************************************************
  * FUNCTION : コース中心からの相対位置計算
  * INPUT    : GPS緯度経度、標高、ジオイド高、コース中心位置(ECEF座標)、コースの角度(ECEF座標)
@@ -379,16 +340,7 @@ void SetCourseData(float altitude, float geoid)
  ***********************************************************************/
 VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
-	VectorFloat buf0,relPos2D;
-	buf0 = blh2ecef(latlon,alt,geoid);
 
-	buf0.x = buf0.x - center.x;
-	buf0.y = buf0.y - center.y;
-
-	relPos2D.x = buf0.x * cos(-courseAngle) - buf0.y * sin(-courseAngle);
-	relPos2D.y = buf0.x * sin(-courseAngle) + buf0.y * cos(-courseAngle);
-
-	return relPos2D;
 }
 
 
@@ -399,77 +351,8 @@ VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
  ***********************************************************************/
 VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
 {
-	float sampleTime = 0.01f;
-	static uint32_t lastProcessTime;
-	static float deltaAngle;                //GPS更新する間に変化した角度(rad)
-	static polVectorFloat3D lastLatLon;     //最後に更新したGPSデータ
-	static VectorFloat deltaPos2D;          //GPS更新する間に移動した距離(X,Y)
-	static VectorFloat updatedPos2D;        //出力用の距離データ(X,Y)
-	VectorFloat estPos2D,deltaGPSpos2D;
 
-	lastProcessTime == 0 ? sampleTime = 0.01f : sampleTime = (millis() - lastProcessTime) * 0.001f;
-
-	if(lastLatLon.t != latlon.t || lastLatLon.p != latlon.p) {
-		estPos2D.x = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x + deltaPos2D.x;
-		estPos2D.y = getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y + deltaPos2D.y;
-		deltaGPSpos2D.x = getRelPosition(latlon,alt,geoid,center,courseAngle).x - getRelPosition(lastLatLon,alt,geoid,center,courseAngle).x;
-		deltaGPSpos2D.y = getRelPosition(latlon,alt,geoid,center,courseAngle).y - getRelPosition(lastLatLon,alt,geoid,center,courseAngle).y;
-		//両者の距離の大きさの差が2m以下の場合
-		if(abs(getRelPosition(latlon,alt,geoid,center,courseAngle).getMagnitude()-estPos2D.getMagnitude()) < 2) {
-			float deltaGPSAngle = atan2(deltaGPSpos2D.y,deltaGPSpos2D.x);
-			if(abs(deltaAngle) - abs(deltaGPSAngle) > 0.5) {
-				//方位の差が0.5rad超の場合、推定値で更新
-				updatedPos2D = estPos2D;
-				//Serial.println("estimate_u2");
-			}
-			else{
-				//方位の差が0.5rad以下の場合、GPSデータで更新
-				updatedPos2D = getRelPosition(latlon,alt,geoid,center,courseAngle);
-				//Serial.println("GPS_u2");
-			}
-		}
-		else{
-			//2m超の差があれば有意な差とみなし、GPSの緯度経度の更新値が進行方向前方±1rad以下であったらGPSデータで更新
-			if(abs(atan2(deltaGPSpos2D.y,deltaGPSpos2D.x)) <= 1) {
-				updatedPos2D.x = getRelPosition(latlon,alt,geoid,center,courseAngle).x;
-				updatedPos2D.y = getRelPosition(latlon,alt,geoid,center,courseAngle).y;
-				//Serial.println("GPS_o2");
-			}
-			else{//2m超の差があったが、GPSの緯度経度の更新値が進行方向±1radを超えていた場合は推定値で更新
-				updatedPos2D = estPos2D;
-				//Serial.println("estimate_o2");
-			}
-		}
-		deltaAngle = 0;
-		deltaPos2D.x = 0;
-		deltaPos2D.y = 0;
-		lastLatLon = latlon;
-	}
-	else{
-		updatedPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
-		updatedPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
-	}
-	deltaAngle -= rpyRate.z * sampleTime;
-	deltaPos2D.x += gpsSpeedmps * cos(relAngle) * sampleTime;
-	deltaPos2D.y += gpsSpeedmps * sin(relAngle) * sampleTime;
-	lastProcessTime = millis();
-	return updatedPos2D;
 }
-
-/************************************************************************
- * FUNCTION : BLH座標系からECEF座標系への変換
- * INPUT    : GPS緯度経度、標高、ジオイド高
- * OUTPUT   : なし
- ***********************************************************************/
-VectorFloat blh2ecef(polVectorFloat3D LatLon, float alt, float geoid)
-{
-	VectorFloat ecef;
-	ecef.x = (NN(LatLon.t)+(alt+geoid))*cos(LatLon.t*M_PI/180)*cos(LatLon.p*M_PI/180);
-	ecef.y = (NN(LatLon.t)+(alt+geoid))*cos(LatLon.t*M_PI/180)*sin(LatLon.p*M_PI/180);
-	ecef.z = (NN(LatLon.t)*(1-E2)+(alt+geoid))*sin(LatLon.t*M_PI/180);
-	return ecef;
-}
-
 
 /************************************************************************
  * FUNCTION : サーボ出力(テスト中)
@@ -490,6 +373,7 @@ void ChassisFinalOutput(int puPwm,int fStrPwm)
  ***********************************************************************/
 void IntegratedChassisControl(void)
 {
+	#if 0
 	static float targetAngleCP,targetYawRtCP;
 	int8_t mode;
 	VectorFloat targetpoint;
@@ -533,6 +417,7 @@ void IntegratedChassisControl(void)
 	Serial.print(",Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
 	#endif
 	#endif
+#endif
 }
 
 
@@ -544,6 +429,7 @@ void IntegratedChassisControl(void)
  ***********************************************************************/
 int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat clippingPoint2D[],float relAngle,VectorFloat rpyRate)
 {
+	#if 0
 	static int8_t mode;
 	float sampleTime;
 	static float turningTime;
@@ -571,6 +457,7 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
 	}
 	//Serial.print(",Time:,"); Serial.print(lastProcessTime);
 	return mode;
+	#endif
 }
 
 /************************************************************************
@@ -579,8 +466,8 @@ int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat c
  * OUTPUT   : なし
  ***********************************************************************/
 float CalcTargetYawRt(int8_t mode, VectorFloat pos2D, VectorFloat targetclippingPoint2D){
+#if 0
 float TargetYawRt;
-
 if(mode == 1 || mode == 6){
 	TargetYawRt = 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
 }
@@ -588,6 +475,7 @@ else{
 	TargetYawRt = - 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
 }
 return TargetYawRt;
+#endif
 }
 
 
@@ -756,10 +644,7 @@ void loop()
 }
 
 void serialEvent1(){
-	while (Serial1.available() > 0) {
-		if(GPS.encode(Serial1.read())) {
-			GPSupdate();
-			break;
-		}
+	while (gps.available(Serial1)) {
+		GPSupdate();
 	}
 }
