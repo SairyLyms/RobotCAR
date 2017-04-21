@@ -21,15 +21,7 @@
 /*	Private Constant Definition											*/
 /************************************************************************/
 
-/************************************************************************/
-/*  DEFINE Earth values                   */
-/************************************************************************/
-#define A 6378137.0
-/* Semi-major axis */
-#define ONE_F 298.257223563
-/* 1/F */
-#define E2  ((1.0/ONE_F)*(2-(1.0/ONE_F)))
-#define NN(p) (A/sqrt(1.0 - (E2)*pow(sin(p*M_PI/180.0),2)))
+
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
@@ -41,26 +33,30 @@ VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 //#define DEBUG_IMU
 #define DEBUG_GPS
 //#define DEBUG
-#define TechCom											/*テストコース設定*/
+//#define TechCom											/*テストコース設定*/
 #ifndef TechCom
+#define Ground
 //#define Garden
 //#define HappiTow
 #endif
 #ifdef TechCom
 NeoGPS::Location_t cp1(365759506L,1400158539L);
 NeoGPS::Location_t cp2(365760193L,1400160370L);
-
 #elif defined Garden
-NeoGPS::Location_t cp1(365780640L,1400148773L);
-NeoGPS::Location_t cp2(365781479L,1400150604L);
+NeoGPS::Location_t cp1(365780250L,1400148840L);
+NeoGPS::Location_t cp2(365780740L,1400150240L);
+#elif defined Ground
+NeoGPS::Location_t cp1(365835260L,1400109670L);
+NeoGPS::Location_t cp2(365833660L,1400110270L);
 #elif defined HappiTow
 NeoGPS::Location_t cp1(365679436L,1399957886L);
 NeoGPS::Location_t cp2(365680389L,1399957886L);
 #endif
 NeoGPS::Location_t cp[2] = {cp1,cp2};
+NeoGPS::Location_t locCenter(0.5*(cp1.lat()+cp2.lat()),0.5*(cp1.lon()+cp2.lon()));
+NeoGPS::Location_t relPos2D;
 static NMEAGPS  gps;
 static gps_fix  fix;
-TinyGPSPlus GPS;
 MPU6050 IMU;
 HMC5883L MAG;
 Madgwick AHRS;
@@ -70,14 +66,12 @@ Scheduler runner;
 VectorFloat rpyAngle;
 VectorFloat rpyRate;
 VectorFloat acc;                                                  /*X,Y,Z加速度(m/s^2)*/
-VectorFloat spd;
-VectorFloat dist;
-VectorFloat pos2D;
-float relAngleTgt[2];                                                   /*相対位置,角度*/
-float heading, headingDeg;                         								/*方位(rad,deg),方位差*/
+float relHeading,relYawAngle; 																		/*CP間中心線からの相対角度(Heading:CW+,Yaw:CCW+)*/
+float relHeadingTgt[2],relYawAngleTgt[2];													/*CPまでの相対位置,角度(Heading:CW+,Yaw:CCW+)*/
+float heading, headingDeg;																				/*方位(rad,deg)*/
+float headingOffst = cp[0].BearingTo(cp[1]);											/*CP間の方位*/
 float gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
-float altitude,geoid;                                            /*GPS標高(m)、ジオイド高(m)*/
-polVectorFloat3D gpsLatLon;                                       /*GPS緯度・経度(deg)*/
+polVectorFloat3D centerPos;
 int puPwm = 92;                                                 /*パワーユニットのPWM*/
 int fStrPwm = 90;                                               /*ステアリングのPWM*/
 bool started;
@@ -170,7 +164,6 @@ void Task100ms(void)
 void Task1000ms(void)
 {
 	//Serial.println(millis());
-	SetCourseData(altitude,geoid);
 }
 
 /************************************************************************
@@ -180,7 +173,7 @@ void Task1000ms(void)
  ***********************************************************************/
 void GPSupdate(void)
 {
-	polVectorFloat3D centerPos;
+	static uint8_t sats;
 	fix = gps.read();
 	if(fix.valid.time){
 	}
@@ -192,28 +185,27 @@ void GPSupdate(void)
 			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //直進時制御用のリファレンス方位
 			distToCP[i].p = fix.location.BearingTo(cp[i]); //旋回開始判定用の方位
 			}
-		if(distToCP[0].r && distToCP[0].t && distToCP[1].r && distToCP[1].t){
-				centerPos.r = (0.5*(distToCP[0].r + distToCP[1].r)); //コース中央までの距離
-				centerPos.t = (0.5*(distToCP[0].t + distToCP[1].t)); //コース中央までの方位
-			}
+			centerPos.r = locCenter.DistanceKm(fix.location) * 1000.0f;
+			centerPos.t = locCenter.BearingTo(fix.location);
 		}
 	fix.valid.speed ? gpsSpeedmps = fix.speed() * 0.514444 : 0;
+	fix.satellites ? sats = fix.satellites : 0;
 	if(fix.valid.heading){
-			heading = fix.heading() * 0.01745329251;
-			for(int8_t i=0;i<2;i++){
-				distToCP[i].t ? relAngleTgt[i] = RoundRadPosNeg(heading-distToCP[i].t) : 0;
+		heading = fix.heading() * 0.01745329251;
+		heading && headingOffst ? relHeading = RoundRadPosNeg(heading - headingOffst) : 0;
+		relHeading ? relYawAngle = -relHeading : 0;
+		for(int8_t i=0;i<2;i++){
+			distToCP[i].t ? relHeadingTgt[i] = RoundRadPosNeg(heading-distToCP[i].t) : 0;
+			relHeadingTgt[i] ? relYawAngleTgt[i] = -relHeadingTgt[i] : 0;
 			}
 		}
 #ifdef DEBUG_GPS
-	Serial.print("Lat:,"); Serial.print(fix.latitude(),8); Serial.print(",Lon:,"); Serial.print(fix.longitude(),8);
+	Serial.print("Sats:,"); Serial.print(sats);
+	Serial.print(",Lat:,"); Serial.print(fix.latitude(),8); Serial.print(",Lon:,"); Serial.print(fix.longitude(),8);
 	Serial.print(",PosN:,"); Serial.print(centerPos.r * cos(centerPos.t)); Serial.print(",PosE:,"); Serial.print(centerPos.r * sin(centerPos.t));
-	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",relHeading:,");Serial.print(relHeading);
+	Serial.print(",relYawAngle:,"); Serial.print(relYawAngle);Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
 #endif
-	//Serial.print(blh2ecefx(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
-	//Serial.print(",");
-	//Serial.print(blh2ecefy(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
-	//Serial.print(",");
-	//Serial.println(blh2ecefz(gpsLatDeg, gpsLonDeg,GPS.altitude.meters() , GPS.geoid.meters()));
 }
 
 /************************************************************************
@@ -243,14 +235,9 @@ void IMUupdate(void)
 
 	AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
 
-#if 0//角速度導出方法の変更
-	if(rpyAngle.calcRad2Deg().x) {rpyRate.x = (LimitValue((AHRS.getRoll()-rpyAngle.calcRad2Deg().x)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
-	if(rpyAngle.calcRad2Deg().y) {rpyRate.y = (LimitValue((AHRS.getPitch()-rpyAngle.calcRad2Deg().y)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
-	if(rpyAngle.calcRad2Deg().z) {rpyRate.z = (LimitValue((AHRS.getYaw()-rpyAngle.calcRad2Deg().z)/sampleTime,1000.0f,-1000.0f) * M_PI/180);}
-#endif
-	rpyRate.x = LimitValue(CalcRPYRate(rpyAngle.x,AHRS.getRoll() * M_PI/180,sampleTime),1000.0f,-1000.0f);
-	rpyRate.y = LimitValue(CalcRPYRate(rpyAngle.y,AHRS.getPitch() * M_PI/180,sampleTime),1000.0f,-1000.0f);
-	rpyRate.z = LimitValue(CalcRPYRate(rpyAngle.z,AHRS.getYaw() * M_PI/180,sampleTime),1000.0f,-1000.0f);
+	rpyAngle.x ? rpyRate.x = CalcRPYRate(rpyAngle.x,AHRS.getRoll() * M_PI/180,sampleTime) : 0;
+	rpyAngle.y ? rpyRate.y = CalcRPYRate(rpyAngle.y,AHRS.getPitch() * M_PI/180,sampleTime) : 0;
+	rpyAngle.z ? rpyRate.z = CalcRPYRate(rpyAngle.z,AHRS.getYaw() * M_PI/180,sampleTime) : 0;
 
 	rpyAngle.x = AHRS.getRoll() * M_PI/180; //ロール角
 	rpyAngle.y = AHRS.getPitch() * M_PI/180; //ピッチ角
@@ -271,20 +258,29 @@ void IMUupdate(void)
 	Serial.print("Az: ");
 	Serial.print(acc.z);
 	Serial.print(" ");
-	Serial.print("roll: ");
+	Serial.print("rollRt: ");
 	Serial.print(rpyRate.x);
 	Serial.print(" ");
-	Serial.print("pitch: ");
+	Serial.print("pitchRt: ");
 	Serial.print(rpyRate.y);
 	Serial.print(" ");
-	Serial.print("yaw: ");
+	Serial.print("yawRt: ");
 	Serial.println(rpyRate.z);
 #endif
 }
 
 float CalcRPYRate(float preAngle,float nowAngle,float sampleTime)
 {
-  return atan2(sin(nowAngle)-sin(preAngle),cos(nowAngle)-cos(preAngle))/sampleTime;
+	float rate;
+	rate = nowAngle - preAngle;
+	if( rate < -3.14 ){
+		rate += 6.28;
+	}
+	else if( rate > 3.14 ){
+		rate -= 6.28;
+	}
+	rate /= sampleTime;
+  return rate;
 }
 
 float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
@@ -318,8 +314,8 @@ float Deadzone(float inputValue,float upperDeadzone,float lowerDeadzone,float ce
 void Initwait(void)
 {
 	// wait for ready
-	Serial.println(F("Send any character to Start RobotCar!!: "));
 	while (Serial.available() && Serial.read()) ; // empty buffer
+	Serial.println(F("Send any character to Start RobotCar!!: "));
 	while (!Serial.available()) ;          // wait for data
 	while (Serial.available() && Serial.read()) ; // empty buffer again
 }
@@ -378,7 +374,7 @@ void IntegratedChassisControl(void)
 	int8_t mode;
 	VectorFloat targetpoint;
 	!targetAngleCP ? targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x) : 0;
-	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relAngle,rpyRate);
+	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relHeading,rpyRate);
 	mode > 0 ? puPwm =  puPwm = 86 : BrakeCtrl(0,gpsSpeedmps,5);
 	switch (mode) {
 	case 1: targetpoint.x = clippingPoint2D[0].x+3;
@@ -427,37 +423,30 @@ void IntegratedChassisControl(void)
  *
  * OUTPUT   : 状態値
  ***********************************************************************/
-int8_t StateManager(VectorFloat pos2D, VectorFloat pointKeepOut[], VectorFloat clippingPoint2D[],float relAngle,VectorFloat rpyRate)
+int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relYawAngleTgt[],float relHeading)
 {
-	#if 0
 	static int8_t mode;
 	float sampleTime;
-	static float turningTime;
-
 	sampleTime = T10.getInterval() * 0.001;
-
-	if(pointKeepOut[0].x < pos2D.x && pointKeepOut[1].x > pos2D.x && pointKeepOut[0].y < pos2D.y && pointKeepOut[1].y > pos2D.y) {
-		if((mode != 1 || mode != 4) && clippingPoint2D[1].x < pos2D.x && pos2D.x < clippingPoint2D[0].x) {
-			cos(relAngle) > 0 ? mode = 1 : mode = 4;
-			if( -1 < pos2D.x && pos2D.x < 1) {turningTime = 0;}
+	if(centerPos.r < 20) {			//コース中央から半径20m内
+		if((mode != 1 || mode != 4) && cos(distToCP[0].p - headingOffst) > 0 && cos(distToCP[1].p + headingOffst) > 0) {
+			cos(relHeading) > 0 ? mode = 1 : mode = 4;
 		}
-		if((mode != 2 || mode != 3) && clippingPoint2D[0].x < pos2D.x) {mode = 2;}
-		if((mode != 5 || mode != 6) && pos2D.x < clippingPoint2D[1].x) {mode = 5;}
+		if((mode != 2 || mode != 3) && cos(distToCP[0].p - headingOffst) < 0) {mode = 2;}
+		if((mode != 5 || mode != 6) && cos(distToCP[1].p + headingOffst) < 0) {mode = 5;}
 		if(mode == 2){
-			turningTime += sampleTime;
-			cos(relAngle) < -0.9 || turningTime > 3.3f ? mode += 1 : 0;
+			sin(relHeading) > 0 && cos(relHeading) < 0 ? mode += 1 : 0;
 		}
 		if(mode == 5){
-			turningTime += sampleTime;
-			cos(relAngle) > 0.9 || turningTime > 3.3f ? mode += 1 : 0;
+			sin(relHeading) > 0 && cos(relHeading) > 0 ? mode += 1 : 0;
 		}
-		}
+	}
 	else{
 		mode = -1;
 	}
 	//Serial.print(",Time:,"); Serial.print(lastProcessTime);
 	return mode;
-	#endif
+
 }
 
 /************************************************************************
@@ -524,7 +513,7 @@ float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYa
  *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
  * OUTPUT   : 操舵制御指示値(サーボ角)
  ***********************************************************************/
-float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relAngle)
+float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relHeading)
 {
 	float sampleTime;
 	float kp = 5,ti = 0.4 ,td = 0.1;
@@ -537,7 +526,7 @@ float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat
 
 	if(mode != lastMode) {
 		yawA -= rpyAngle.z;
-		relTAOff = relAngle;
+		relTAOff = relHeading;
 	}
 	yawA += rpyRate.z * sampleTime;
 	relTA = RoundRad(targetAngleCP - relTAOff);
@@ -596,7 +585,8 @@ int BrakeCtrl(float targetSpeed, float nowSpeedmps, float maxDecelAx)
 }
 
 
-float convertRawAcceleration(int aRaw) {
+float convertRawAcceleration(int aRaw)
+ {
 	// since we are using 2G(19.6 m/s^2) range
 	// -2g maps to a raw value of -32768
 	// +2g maps to a raw value of 32767
@@ -605,7 +595,8 @@ float convertRawAcceleration(int aRaw) {
 	return a;
 }
 
-float convertRawGyro(int gRaw) {
+float convertRawGyro(int gRaw)
+ {
 	// since we are using 250 degrees/seconds range
 	// -250 maps to a raw value of -32768
 	// +250 maps to a raw value of 32767
