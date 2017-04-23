@@ -20,11 +20,11 @@
   // use NeoHWSerial, especially if you want to handle GPS characters
   // in an Interrupt Service Routine.
   //#include <NeoHWSerial.h>
-#else  
+#else
   // Only one serial port is available, uncomment one of the following:
   //#include <NeoICSerial.h>
   //#include <AltSoftSerial.h>
-  #include <NeoSWSerial.h>
+  //#include <NeoSWSerial.h>
   //#include <SoftwareSerial.h> /* NOT RECOMMENDED */
 #endif
 #include "GPSport.h"
@@ -91,7 +91,7 @@ static void printL( Print & outs, int32_t degE7 )
     outs.print( '0' );
     factor /= 10L;
   }
-  
+
   // Print fractional degrees
   outs.print( degE7 );
 }
@@ -150,12 +150,12 @@ static void GPSloop()
     doSomeWork( gps.read() );
 
 } // GPSloop
-  
+
 //--------------------------
 
 void setup()
 {
-  DEBUG_PORT.begin(9600);
+  DEBUG_PORT.begin(115200);
   while (!DEBUG_PORT)
     ;
 
@@ -172,9 +172,9 @@ void setup()
 
   DEBUG_PORT.flush();
 
-  
+
   // Start the UART for the GPS device
-  gps_port.begin(9600);
+  gps_port.begin(38400);
 }
 
 //--------------------------
@@ -182,7 +182,7 @@ void setup()
 void loop()
 {
   GPSloop();
-  
+
   // If the GPS has been sending data, then the "fix" structure may have
   //   valid data.  Remember, you must check the valid flags before you
   //   use any of the data inside "fix".  See "doSomeWork" for an example

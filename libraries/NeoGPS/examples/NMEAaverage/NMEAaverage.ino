@@ -26,7 +26,7 @@ using namespace NeoGPS;
   // Only one serial port is available, uncomment one of the following:
   //#include <NeoICSerial.h>
   //#include <AltSoftSerial.h>
-  #include <NeoSWSerial.h>
+  //#include <NeoSWSerial.h>
   //#include <SoftwareSerial.h> /* NOT RECOMMENDED */
 #endif
 
@@ -93,7 +93,7 @@ const char nwCD [] PROGMEM = "NW";
 const char nnwCD[] PROGMEM = "NNW";
 
 const char * const dirStrings[] PROGMEM =
-  { nCD, nneCD, neCD, eneCD, eCD, eseCD, seCD, sseCD, 
+  { nCD, nneCD, neCD, eneCD, eCD, eseCD, seCD, sseCD,
     sCD, sswCD, swCD, wswCD, wCD, wnwCD, nwCD, nnwCD };
 
 const __FlashStringHelper *compassDir( uint16_t bearing ) // degrees CW from N
@@ -120,7 +120,7 @@ static void doSomeWork()
   if (fix.valid.location && fix.valid.date && fix.valid.time) {
 
     if (count == 0) {
-    
+
       // Just save the first good fix
       first = fix;
       firstSecs = (clock_t) first.dateTime;
@@ -242,7 +242,7 @@ static void GPSloop()
 void setup()
 {
   // Start the normal trace output
-  DEBUG_PORT.begin(9600);
+  DEBUG_PORT.begin(115200);
   while (!DEBUG_PORT)
     ;
 
@@ -258,7 +258,7 @@ void setup()
   DEBUG_PORT.flush();
 
   // Start the UART for the GPS device
-  gps_port.begin( 9600 );
+  gps_port.begin( 38400 );
 }
 
 //------------------------------------------------------------

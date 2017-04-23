@@ -14,8 +14,8 @@
 //  Description:  This program parses UBX binary protocal messages from
 //     ublox devices.  It shows how to acquire the information necessary
 //     to use the GPS Time-Of-Week in many UBX messages.  As an offset
-//     from midnight Sunday morning (GPS time), you also need the current 
-//     UTC time (this is *not* GPS time) and the current number of GPS 
+//     from midnight Sunday morning (GPS time), you also need the current
+//     UTC time (this is *not* GPS time) and the current number of GPS
 //     leap seconds.
 //
 //  Serial is for debug output to the Serial Monitor window.
@@ -29,7 +29,7 @@
   #ifdef NMEAGPS_INTERRUPT_PROCESSING
     #include <NeoHWSerial.h>
   #endif
-#else  
+#else
   // Only one serial port is available, uncomment one of the following:
   //#include <NeoICSerial.h>
   //#include <AltSoftSerial.h>
@@ -90,9 +90,9 @@ public:
 
     enum
       {
-        GETTING_STATUS, 
-        GETTING_LEAP_SECONDS, 
-        GETTING_UTC, 
+        GETTING_STATUS,
+        GETTING_LEAP_SECONDS,
+        GETTING_UTC,
         RUNNING
       }
         state NEOGPS_BF(8);
@@ -235,7 +235,7 @@ public:
           defined(UBLOX_PARSE_SVINFO)
         if (!enable_msg( ublox::UBX_NAV, ublox::UBX_NAV_SVINFO ))
           DEBUG_PORT.println( F("enable SVINFO failed!") );
-        
+
         enabled_msg_with_time = true;
       #endif
 
@@ -311,7 +311,7 @@ static void disableUBX()
 void setup()
 {
   // Start the normal trace output
-  DEBUG_PORT.begin(9600);
+  DEBUG_PORT.begin(115200);
   while (!DEBUG_PORT)
     ;
 

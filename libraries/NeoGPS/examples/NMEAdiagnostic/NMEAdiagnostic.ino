@@ -23,11 +23,11 @@
 #if defined( UBRR1H ) | defined( ID_USART0 )
   // Default is to use Serial1 when available.
 
-#else  
+#else
   // Only one serial port is available, uncomment one of the following:
   //#include <AltSoftSerial.h>
   //#include <NeoSWSerial.h> /* ONLY WORKS AT 9600, 19200 and 38400 */
-  #include <SoftwareSerial.h> /* NOT RECOMMENDED */
+  //#include <SoftwareSerial.h> /* NOT RECOMMENDED */
 #endif
 #include "GPSport.h"
 
@@ -89,7 +89,7 @@ static void hang()
 // Baud rates to check
 
 static long  baud_table[] =
-  { 1200, 2400, 4800, 9600, 14400, 19200, 28800, 31250, 38400, 
+  { 1200, 2400, 4800, 9600, 14400, 19200, 28800, 31250, 38400,
     57600, 115200 };
 static const uint8_t num_bauds          = sizeof(baud_table)/sizeof(baud_table[0]);
 static const uint8_t INITIAL_BAUD_INDEX = 3; // 9600
@@ -158,7 +158,7 @@ static void dumpSomeChars()
 
     for (uint16_t i=0; i<someCharsIndex; ) {
       uint16_t j;
-      
+
       for (j=0; (i<someCharsIndex) && (j<bytes_per_line); i++, j++) {
         uint8_t c = *ptr++;
         if (c < 0x10)
@@ -174,7 +174,7 @@ static void dumpSomeChars()
       while (j++ < bytes_per_line)
         DEBUG_PORT.print( F("  ") );
       DEBUG_PORT.print( ' ' );
-      
+
       for (j=0; j<jmax; j++)
         DEBUG_PORT.print( ascii[ j ] );
       DEBUG_PORT.print( '\n' );
@@ -212,7 +212,7 @@ void displaySentences()
 } // displaySentences
 
 //----------------------------------------------------------------
-//  Listen to see if the GPS device is correctly 
+//  Listen to see if the GPS device is correctly
 //  connected and functioning.
 
 static void listenForSomething()
@@ -230,7 +230,7 @@ static void listenForSomething()
     bool getting_chars = (someCharsIndex > 0);
 
     // Try to diagnose the problem
-    
+
     static uint8_t tries = 1;
     bool           tryNext = false;
 
@@ -277,7 +277,7 @@ static void listenForSomething()
       valid_sentence_received = 0UL;
     }
   }
-  
+
 } // listenForSomething
 
 //------------------------------------
@@ -327,7 +327,7 @@ static void GPSloop()
 void setup()
 {
   // Start the normal trace output
-  DEBUG_PORT.begin(9600);
+  DEBUG_PORT.begin(115200);
   while (!DEBUG_PORT)
     ;
 

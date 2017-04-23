@@ -30,14 +30,15 @@ polVectorFloat3D distToCP[2];
 polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
+#define CC01
 //#define DEBUG_IMU
-#define DEBUG_GPS
-//#define DEBUG
+//#define DEBUG_GPS
+#define DEBUG
 //#define TechCom											/*テストコース設定*/
 #ifndef TechCom
-#define Ground
+//#define Ground
 //#define Garden
-//#define HappiTow
+#define HappiTow
 #endif
 #ifdef TechCom
 NeoGPS::Location_t cp1(365759506L,1400158539L);
@@ -53,7 +54,7 @@ NeoGPS::Location_t cp1(365679436L,1399957886L);
 NeoGPS::Location_t cp2(365680389L,1399957886L);
 #endif
 NeoGPS::Location_t cp[2] = {cp1,cp2};
-NeoGPS::Location_t locCenter(0.5*(cp1.lat()+cp2.lat()),0.5*(cp1.lon()+cp2.lon()));
+NeoGPS::Location_t locCenter((long)(0.5*(cp[0].lat()+cp[1].lat())),(long)(5*(0.1 * cp[0].lon()+ 0.1 * cp[1].lon())));
 NeoGPS::Location_t relPos2D;
 static NMEAGPS  gps;
 static gps_fix  fix;
@@ -69,10 +70,12 @@ VectorFloat acc;                                                  /*X,Y,Z加速�
 float relHeading,relYawAngle; 																		/*CP間中心線からの相対角度(Heading:CW+,Yaw:CCW+)*/
 float relHeadingTgt[2],relYawAngleTgt[2];													/*CPまでの相対位置,角度(Heading:CW+,Yaw:CCW+)*/
 float heading, headingDeg;																				/*方位(rad,deg)*/
-float headingOffst = cp[0].BearingTo(cp[1]);											/*CP間の方位*/
+float yawRtGPS;
+float headingOffst = cp[1].BearingTo(cp[0]);											/*CP間の方位*/
 float gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
 polVectorFloat3D centerPos;
-int puPwm = 92;                                                 /*パワーユニットのPWM*/
+uint8_t sats;
+int puPwm = 90;
 int fStrPwm = 90;                                               /*ステアリングのPWM*/
 bool started;
 
@@ -107,9 +110,9 @@ void setup()
 	Wire.begin();
 	Serial.begin(115200);
 	Serial1.begin(38400);
-	IMU.setI2CMasterModeEnabled(false);
-	IMU.setI2CBypassEnabled(true);
-	IMU.setSleepEnabled(false);
+	//IMU.setI2CMasterModeEnabled(false);
+	//IMU.setI2CBypassEnabled(true);
+	//IMU.setSleepEnabled(false);
 	IMU.initialize();
 	MAG.initialize();
 	IMU.setXGyroOffset(50);
@@ -119,7 +122,7 @@ void setup()
 	IMU.setYAccelOffset(-82);
 	IMU.setZAccelOffset(2170);
 	FStr.attach(3);
-	PowUnit.attach(2);
+	PowUnit.attach(2,1000,2000);
 	Serial.flush();
 	runner.startNow();
 	Initwait();
@@ -133,6 +136,7 @@ void setup()
 void Task10ms(void)
 {
 	IMUupdate();
+	//MAGupdate();
 	IntegratedChassisControl();
 }
 
@@ -173,14 +177,15 @@ void Task1000ms(void)
  ***********************************************************************/
 void GPSupdate(void)
 {
-	static uint8_t sats;
+	static unsigned long lastTime;
+	float sampleTime = 0.1;
 	fix = gps.read();
-	if(fix.valid.time){
-	}
+	lastTime ? sampleTime = (millis() - lastTime)*0.001 : 0;
+	lastTime = millis();
 	if(fix.valid.location) {
 		NeoGPS::Location_t cpAway[2] = {cp[0],cp[1]};
 		for(int8_t i=0;i<2;i++){
-			cpAway[i].OffsetBy( 10.0 / NeoGPS::Location_t::EARTH_RADIUS_KM, fix.location.BearingTo(cp[i]));
+			cpAway[i].OffsetBy( 0.1 / NeoGPS::Location_t::EARTH_RADIUS_KM, fix.location.BearingTo(cp[i]));
 			distToCP[i].r = fix.location.DistanceKm(cp[i]) * 1000.0f;
 			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //直進時制御用のリファレンス方位
 			distToCP[i].p = fix.location.BearingTo(cp[i]); //旋回開始判定用の方位
@@ -189,8 +194,9 @@ void GPSupdate(void)
 			centerPos.t = locCenter.BearingTo(fix.location);
 		}
 	fix.valid.speed ? gpsSpeedmps = fix.speed() * 0.514444 : 0;
-	fix.satellites ? sats = fix.satellites : 0;
+	fix.valid.satellites ? sats = fix.satellites : 0;
 	if(fix.valid.heading){
+		heading ? yawRtGPS = -CalcRPYRate(heading,fix.heading() * 0.01745329251,sampleTime) : 0;
 		heading = fix.heading() * 0.01745329251;
 		heading && headingOffst ? relHeading = RoundRadPosNeg(heading - headingOffst) : 0;
 		relHeading ? relYawAngle = -relHeading : 0;
@@ -204,7 +210,7 @@ void GPSupdate(void)
 	Serial.print(",Lat:,"); Serial.print(fix.latitude(),8); Serial.print(",Lon:,"); Serial.print(fix.longitude(),8);
 	Serial.print(",PosN:,"); Serial.print(centerPos.r * cos(centerPos.t)); Serial.print(",PosE:,"); Serial.print(centerPos.r * sin(centerPos.t));
 	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",relHeading:,");Serial.print(relHeading);
-	Serial.print(",relYawAngle:,"); Serial.print(relYawAngle);Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+	Serial.print(",relYawAngle:,"); Serial.print(relYawAngle);Serial.print(",YawRtGPS:,"); Serial.print(yawRtGPS);Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
 #endif
 }
 
@@ -269,6 +275,29 @@ void IMUupdate(void)
 #endif
 }
 
+/************************************************************************
+ * FUNCTION : コンパス更新処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
+ void MAGupdate(void)
+ {
+	 int16_t mx, my, mz;
+	 MAG.getHeading(&mx, &my, &mz);
+
+	 float heading = atan2(my, mx);
+	 if(heading < 0)
+		 heading += 2 * M_PI;
+
+	 Serial.print("mag:\t");
+	 Serial.print(mx); Serial.print("\t");
+	 Serial.print(my); Serial.print("\t");
+	 Serial.print(mz); Serial.print("\t");
+
+	 Serial.print("heading:\t");
+	 Serial.println(heading * 180/M_PI);
+ }
+
 float CalcRPYRate(float preAngle,float nowAngle,float sampleTime)
 {
 	float rate;
@@ -306,6 +335,8 @@ float Deadzone(float inputValue,float upperDeadzone,float lowerDeadzone,float ce
 	return buf;
 }
 
+
+
 /************************************************************************
  * FUNCTION : IMU更新処理
  * INPUT    : なし
@@ -314,8 +345,8 @@ float Deadzone(float inputValue,float upperDeadzone,float lowerDeadzone,float ce
 void Initwait(void)
 {
 	// wait for ready
-	while (Serial.available() && Serial.read()) ; // empty buffer
 	Serial.println(F("Send any character to Start RobotCar!!: "));
+	while (Serial.available() && Serial.read()) ; // empty buffer
 	while (!Serial.available()) ;          // wait for data
 	while (Serial.available() && Serial.read()) ; // empty buffer again
 }
@@ -357,8 +388,12 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
  ***********************************************************************/
 void ChassisFinalOutput(int puPwm,int fStrPwm)
 {
-	PowUnit.write(puPwm);
+	//PowUnit.write(puPwm);
+#ifdef CC01
+	FStr.write(180-fStrPwm);
+#else
 	FStr.write(fStrPwm);
+#endif
 }
 
 
@@ -369,38 +404,39 @@ void ChassisFinalOutput(int puPwm,int fStrPwm)
  ***********************************************************************/
 void IntegratedChassisControl(void)
 {
-	#if 0
 	static float targetAngleCP,targetYawRtCP;
 	int8_t mode;
 	VectorFloat targetpoint;
-	!targetAngleCP ? targetAngleCP = atan2(clippingPoint2D[0].y - pos2D.y,clippingPoint2D[0].x - pos2D.x) : 0;
-	mode = StateManager(pos2D,pointKeepOut,clippingPoint2D,relHeading,rpyRate);
-	mode > 0 ? puPwm =  puPwm = 86 : BrakeCtrl(0,gpsSpeedmps,5);
-	switch (mode) {
-	case 1: targetpoint.x = clippingPoint2D[0].x+3;
-					targetpoint.y = clippingPoint2D[0].y;
-					targetYawRtCP = CalcTargetYawRt(mode,pos2D,targetpoint);
+	mode = StateManager(cp,distToCP,centerPos,relYawAngleTgt,relHeading);
+	mode > 0 ? puPwm = 120 : puPwm = 90;
+	switch (1) {
+	case 1: targetYawRtCP = CalcTargetYawRt(mode,distToCP[0]);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
+					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
 	case 2: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,1.0f);
 					break;
 
-	case 3: targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[1]);
+	case 3: targetYawRtCP = CalcTargetYawRt(mode,distToCP[1]);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
+					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
-	case 4: targetpoint.x = clippingPoint2D[1].x-3;
-					targetpoint.y = clippingPoint2D[1].y;
-					targetYawRtCP = CalcTargetYawRt(mode,pos2D,targetpoint);
+	case 4: //targetpoint.x = clippingPoint2D[1].x-3;
+					//targetpoint.y = clippingPoint2D[1].y;
+					targetYawRtCP = CalcTargetYawRt(mode,distToCP[1]);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
+					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
 	case 5: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,-1.0f);
 					break;
 
-	case 6: targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[0]);
+	case 6: //targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[0]);
+					targetYawRtCP = CalcTargetYawRt(mode,distToCP[0]);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
+					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
 	default:fStrPwm = 90;
@@ -408,12 +444,11 @@ void IntegratedChassisControl(void)
 	}
 	#if 1
 	#ifdef DEBUG
-	Serial.print(",PosX:,"); Serial.print(pos2D.x); Serial.print(",PosY:,"); Serial.print(pos2D.y); Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
-	Serial.print(",TgtYawRt:,"); Serial.print(targetYawRtCP);Serial.print(",yawRate:,"); Serial.print(rpyRate.z,6); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
-	Serial.print(",Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
+	//Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
+	//Serial.print(",TgtYawRt:,"); Serial.print(targetYawRtCP);Serial.print(",yawRate:,"); Serial.print(rpyRate.z,6); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
+	//Serial.print(",Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
 	#endif
 	#endif
-#endif
 }
 
 
@@ -428,12 +463,12 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 	static int8_t mode;
 	float sampleTime;
 	sampleTime = T10.getInterval() * 0.001;
-	if(centerPos.r < 20) {			//コース中央から半径20m内
-		if((mode != 1 || mode != 4) && cos(distToCP[0].p - headingOffst) > 0 && cos(distToCP[1].p + headingOffst) > 0) {
+	if(sats && centerPos.r < 10) {			//コース中央から半径20m内
+		if((mode != 1 || mode != 4) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
 			cos(relHeading) > 0 ? mode = 1 : mode = 4;
 		}
-		if((mode != 2 || mode != 3) && cos(distToCP[0].p - headingOffst) < 0) {mode = 2;}
-		if((mode != 5 || mode != 6) && cos(distToCP[1].p + headingOffst) < 0) {mode = 5;}
+		if((mode != 2 || mode != 3) && cos(distToCP[0].p) > 0) {mode = 2;}
+		if((mode != 5 || mode != 6) && cos(distToCP[1].p) < 0) {mode = 5;}
 		if(mode == 2){
 			sin(relHeading) > 0 && cos(relHeading) < 0 ? mode += 1 : 0;
 		}
@@ -444,7 +479,10 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 	else{
 		mode = -1;
 	}
-	//Serial.print(",Time:,"); Serial.print(lastProcessTime);
+	//Serial.print(",mode:,"); Serial.println(mode);
+	//Serial.print(",relHead:,"); Serial.print(relHeading);
+	//Serial.print(",HeadtoCp0:,"); Serial.print(distToCP[0].p);
+	//Serial.print(",HeadtoCp1:,"); Serial.println(distToCP[1].p);
 	return mode;
 
 }
@@ -454,17 +492,17 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
-float CalcTargetYawRt(int8_t mode, VectorFloat pos2D, VectorFloat targetclippingPoint2D){
-#if 0
+float CalcTargetYawRt(int8_t mode, polVectorFloat3D distToCP){
 float TargetYawRt;
 if(mode == 1 || mode == 6){
-	TargetYawRt = 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
-}
+	TargetYawRt = 2 * distToCP.r * sin(distToCP.t) / distToCP.r;
+	}
 else{
-	TargetYawRt = - 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
-}
+	TargetYawRt = -2 * distToCP.r * sin(distToCP.t) / distToCP.r;
+	//TargetYawRt = - 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
+	}
+	Serial.print(",tgtYawRt:,"); Serial.println(TargetYawRt);
 return TargetYawRt;
-#endif
 }
 
 
@@ -477,7 +515,11 @@ return TargetYawRt;
 float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYawRt)
 {
 	float sampleTime;
+#ifdef CC01
+	float kp = 0.5,ti = 0.1 ,td = 0.25,diff;
+#else
 	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
+#endif
 	static float err,lastyawRate;
 	static int8_t lastMode;
 	if(mode != lastMode){

@@ -7,23 +7,23 @@
 //  Prerequisites:
 //     1) NMEA.ino works with your device
 //
-//  Description:  This minimal program parses the GPS data during the 
+//  Description:  This minimal program parses the GPS data during the
 //     RX character interrupt.  The ISR passes the character to
-//     the GPS object for parsing.  The GPS object will add gps_fix 
+//     the GPS object for parsing.  The GPS object will add gps_fix
 //     structures to a buffer that can be later read() by loop().
 //======================================================================
 
 #if defined( UBRR1H ) | defined( ID_USART0 )
   // Default is to use NeoSerial1 when available.  You could also
-  #include <NeoHWSerial.h>
-  // NOTE: There is an issue with IDEs before 1.6.6.  The above include 
+  //#include <NeoHWSerial.h>
+  // NOTE: There is an issue with IDEs before 1.6.6.  The above include
   // must be commented out for non-Mega boards, even though it is
-  // conditionally included.  If you are using an earlier IDEs, 
+  // conditionally included.  If you are using an earlier IDEs,
   // comment the above include.
-#else  
+#else
   // Only one serial port is available, uncomment one of the following:
   //#include <NeoICSerial.h>
-  #include <NeoSWSerial.h>
+  //#include <NeoSWSerial.h>
   //#include <SoftwareSerial.h> /* NOT RECOMMENDED */
 #endif
 #include "GPSport.h"
@@ -56,7 +56,7 @@ static void GPSisr( uint8_t c )
 void setup()
 {
   // Start the normal trace output
-  DEBUG_PORT.begin(9600);
+  DEBUG_PORT.begin(115200);
   while (!DEBUG_PORT)
     ;
 
@@ -73,7 +73,7 @@ void setup()
 
   // Start the UART for the GPS device
   gps_port.attachInterrupt( GPSisr );
-  gps_port.begin( 9600 );
+  gps_port.begin( 38400 );
 }
 
 //--------------------------

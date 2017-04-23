@@ -5,7 +5,7 @@
 //  Program: NMEA.ino
 //
 //  Description:  This program sends ublox commands to enable and disable
-//    NMEA sentences, set the update rate to 1Hz, 5Hz or 10Hz, and set the 
+//    NMEA sentences, set the update rate to 1Hz, 5Hz or 10Hz, and set the
 //    baud rate to 9600 or 115200.
 //
 //    Enter the following commands through the Serial Monitor window:
@@ -21,7 +21,7 @@
 //      'e'  - toggle echo of all characters received from GPS device.
 //
 //    CAUTION:   If your Serial Monitor window baud rate is less than the GPS baud
-//       rate, turning echo ON will cause the sketch to lose some or all 
+//       rate, turning echo ON will cause the sketch to lose some or all
 //       GPS data and/or fixes.
 //
 //    NOTE:  All NMEA PUBX text commands are also echoed to the debug port.
@@ -34,7 +34,7 @@
 //     3) You know the default baud rate of your GPS device.
 //          If 9600 does not work, use NMEAdiagnostic.ino to
 //          scan for the correct baud rate.
-//     4) LAST_SENTENCE_IN_INTERVAL is defined to be 
+//     4) LAST_SENTENCE_IN_INTERVAL is defined to be
 //          NMEAGPS::NMEA_GLL (see NMEAGPS_cfg.h).
 //
 //  'Serial' is for debug output to the Serial Monitor window.
@@ -50,7 +50,7 @@
   // Only one serial port is available, uncomment one of the following:
   //#include <NeoICSerial.h>
   //#include <AltSoftSerial.h>
-  #include <NeoSWSerial.h>
+  //#include <NeoSWSerial.h>
   //#include <SoftwareSerial.h> /* NOT RECOMMENDED */
 #endif
 
@@ -77,12 +77,18 @@ NeoTeeStream tee( both, sizeof(both)/sizeof(both[0]) );
 //-------------------------------------------
 // U-blox UBX binary commands
 
-const unsigned char ubxRate1Hz[] PROGMEM = 
+const unsigned char ubxRate1Hz[] PROGMEM =
   { 0x06,0x08,0x06,0x00,0xE8,0x03,0x01,0x00,0x01,0x00 };
 const unsigned char ubxRate5Hz[] PROGMEM =
   { 0x06,0x08,0x06,0x00,0xC8,0x00,0x01,0x00,0x01,0x00 };
 const unsigned char ubxRate10Hz[] PROGMEM =
   { 0x06,0x08,0x06,0x00,0x64,0x00,0x01,0x00,0x01,0x00 };
+const unsigned char ubxSaveConfig[] PROGMEM =
+  { 0x06,0x09,0x0D,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x03};
+const unsigned char ubxSetNavMode[] PROGMEM =
+  {0x06, 0x24, 0x24, 0x00, 0xFF, 0xFF, 0x04, 0x03, 0x00, 0x00, 0x00, 0x00, 0x10, 0x27, 0x00, 0x00, 0x05, 0x00, 0xFA, 0x00, 0xFA, 0x00, 0x64, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x10, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+const unsigned char ubxSetPowerMode[] PROGMEM =
+  {0x06, 0x3B, 0x2C, 0x00, 0x01, 0x06, 0x00, 0x00, 0x00, 0x90, 0x42, 0x01, 0xE8, 0x03, 0x00, 0x00,0x10, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x4F, 0xC1, 0x03, 0x00, 0x87, 0x02, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x64, 0x40, 0x01, 0x00};
 
 // Disable specific NMEA sentences
 const unsigned char ubxDisableGGA[] PROGMEM =
@@ -177,7 +183,7 @@ static void doSomeWork()
 void setup()
 {
   // Start the normal trace output
-  DEBUG_PORT.begin(9600);
+  DEBUG_PORT.begin(115200);
   while (!DEBUG_PORT)
     ;
 
@@ -221,7 +227,7 @@ void setup()
 void loop()
 {
   // Check for commands
-  
+
   if (Serial.available()) {
     char c = Serial.read();
 
@@ -230,11 +236,11 @@ void loop()
         if (lastChar == 'r') {
           sendUBX( ubxRate10Hz, sizeof(ubxRate10Hz) );
         } else {
-          gps.send_P( &tee, (const __FlashStringHelper *) disableRMC );
+          gps.send_P( &tee, (const __FlashStringHelper *) enableRMC );
           gps.send_P( &tee, (const __FlashStringHelper *) enableGLL );
           gps.send_P( &tee, (const __FlashStringHelper *) disableGSV );
           gps.send_P( &tee, (const __FlashStringHelper *) disableGSA );
-          gps.send_P( &tee, (const __FlashStringHelper *) disableGGA );
+          gps.send_P( &tee, (const __FlashStringHelper *) enableGGA );
           gps.send_P( &tee, (const __FlashStringHelper *) disableVTG );
           gps.send_P( &tee, (const __FlashStringHelper *) disableZDA );
         }
@@ -276,6 +282,12 @@ void loop()
 
       case 'e':
         echoing = !echoing;
+        break;
+
+      case 's':
+        sendUBX( ubxSetNavMode, sizeof(ubxSetNavMode) );
+        sendUBX( ubxSetPowerMode, sizeof(ubxSetPowerMode) );
+        sendUBX( ubxSaveConfig, sizeof(ubxSaveConfig) );
         break;
 
       default: break;
