@@ -30,16 +30,15 @@ polVectorFloat3D distToCP[2];
 polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
-#define CC01
+//#define CC01
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 #define DEBUG
 //#define TechCom											/*テストコース設定*/
-#ifndef TechCom
 //#define Ground
-//#define Garden
-#define HappiTow
-#endif
+#define Garden
+//#define HappiTow
+
 #ifdef TechCom
 NeoGPS::Location_t cp1(365759506L,1400158539L);
 NeoGPS::Location_t cp2(365760193L,1400160370L);
@@ -408,9 +407,9 @@ void IntegratedChassisControl(void)
 	int8_t mode;
 	VectorFloat targetpoint;
 	mode = StateManager(cp,distToCP,centerPos,relYawAngleTgt,relHeading);
-	mode > 0 ? puPwm = 120 : puPwm = 90;
+	mode > 0 ? puPwm = 87 : puPwm = 90;
 	switch (1) {
-	case 1: targetYawRtCP = CalcTargetYawRt(mode,distToCP[0]);
+	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
@@ -418,14 +417,14 @@ void IntegratedChassisControl(void)
 	case 2: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,1.0f);
 					break;
 
-	case 3: targetYawRtCP = CalcTargetYawRt(mode,distToCP[1]);
+	case 3: targetYawRtCP = CalcTargetYawRt(distToCP[1],relYawAngleTgt[1],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
 	case 4: //targetpoint.x = clippingPoint2D[1].x-3;
 					//targetpoint.y = clippingPoint2D[1].y;
-					targetYawRtCP = CalcTargetYawRt(mode,distToCP[1]);
+					targetYawRtCP = CalcTargetYawRt(distToCP[1],relYawAngleTgt[1],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
@@ -434,7 +433,7 @@ void IntegratedChassisControl(void)
 					break;
 
 	case 6: //targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[0]);
-					targetYawRtCP = CalcTargetYawRt(mode,distToCP[0]);
+					targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
@@ -492,17 +491,12 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
-float CalcTargetYawRt(int8_t mode, polVectorFloat3D distToCP){
-float TargetYawRt;
-if(mode == 1 || mode == 6){
-	TargetYawRt = 2 * distToCP.r * sin(distToCP.t) / distToCP.r;
-	}
-else{
-	TargetYawRt = -2 * distToCP.r * sin(distToCP.t) / distToCP.r;
-	//TargetYawRt = - 2 * (targetclippingPoint2D.y - pos2D.y) / (pow(targetclippingPoint2D.y - pos2D.y,2) + pow(targetclippingPoint2D.x - pos2D.x,2));
-	}
+float CalcTargetYawRt(polVectorFloat3D distToCP,float relYawAngleTgt,float gpsSpeedmps)
+{
+	float TargetYawRt;
+	TargetYawRt = gpsSpeedmps * sin(relYawAngleTgt)/distToCP.r;
 	Serial.print(",tgtYawRt:,"); Serial.println(TargetYawRt);
-return TargetYawRt;
+	return TargetYawRt;
 }
 
 
