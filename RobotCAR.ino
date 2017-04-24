@@ -30,14 +30,14 @@ polVectorFloat3D distToCP[2];
 polVectorFloat3D clippingPoint[2];
 VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
-//#define CC01
+#define CC01
 //#define DEBUG_IMU
-//#define DEBUG_GPS
+#define DEBUG_GPS
 #define DEBUG
 //#define TechCom											/*テストコース設定*/
 //#define Ground
-#define Garden
-//#define HappiTow
+//#define Garden
+#define HappiTow
 
 #ifdef TechCom
 NeoGPS::Location_t cp1(365759506L,1400158539L);
@@ -184,7 +184,7 @@ void GPSupdate(void)
 	if(fix.valid.location) {
 		NeoGPS::Location_t cpAway[2] = {cp[0],cp[1]};
 		for(int8_t i=0;i<2;i++){
-			cpAway[i].OffsetBy( 0.1 / NeoGPS::Location_t::EARTH_RADIUS_KM, fix.location.BearingTo(cp[i]));
+			cpAway[i].OffsetBy( 0.01 / NeoGPS::Location_t::EARTH_RADIUS_KM, fix.location.BearingTo(cp[i]));
 			distToCP[i].r = fix.location.DistanceKm(cp[i]) * 1000.0f;
 			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //直進時制御用のリファレンス方位
 			distToCP[i].p = fix.location.BearingTo(cp[i]); //旋回開始判定用の方位
@@ -387,7 +387,7 @@ VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, Vect
  ***********************************************************************/
 void ChassisFinalOutput(int puPwm,int fStrPwm)
 {
-	//PowUnit.write(puPwm);
+	PowUnit.write(puPwm);
 #ifdef CC01
 	FStr.write(180-fStrPwm);
 #else
@@ -407,8 +407,8 @@ void IntegratedChassisControl(void)
 	int8_t mode;
 	VectorFloat targetpoint;
 	mode = StateManager(cp,distToCP,centerPos,relYawAngleTgt,relHeading);
-	mode > 0 ? puPwm = 87 : puPwm = 90;
-	switch (1) {
+	mode > 0 ? puPwm = 120 : puPwm = 90;
+	switch (mode) {
 	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
@@ -462,7 +462,7 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 	static int8_t mode;
 	float sampleTime;
 	sampleTime = T10.getInterval() * 0.001;
-	if(sats && centerPos.r < 10) {			//コース中央から半径20m内
+	if(sats && centerPos.r < 15) {			//コース中央から半径20m内
 		if((mode != 1 || mode != 4) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
 			cos(relHeading) > 0 ? mode = 1 : mode = 4;
 		}
@@ -494,7 +494,9 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 float CalcTargetYawRt(polVectorFloat3D distToCP,float relYawAngleTgt,float gpsSpeedmps)
 {
 	float TargetYawRt;
-	TargetYawRt = gpsSpeedmps * sin(relYawAngleTgt)/distToCP.r;
+	TargetYawRt = gpsSpeedmps * sin(-relYawAngleTgt)/distToCP.r;
+	Serial.print(",relYaw:,");Serial.print(relYawAngleTgt);
+	Serial.print(",distToCP:,"); Serial.print(distToCP.r);
 	Serial.print(",tgtYawRt:,"); Serial.println(TargetYawRt);
 	return TargetYawRt;
 }
