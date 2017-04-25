@@ -2,7 +2,6 @@
 /*	Include Files														*/
 /************************************************************************/
 #include <NMEAGPS.h>
-#include <TinyGPS++.h>
 #include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
 #include <HMC5883L.h>
@@ -25,35 +24,35 @@
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
-VectorFloat center;
 polVectorFloat3D distToCP[2];
-polVectorFloat3D clippingPoint[2];
-VectorFloat pointKeepOut[2];        /*立ち入り禁止エリア設定*/
 
-#define CC01
+//#define CC01
 //#define DEBUG_IMU
 #define DEBUG_GPS
-#define DEBUG
+//#define DEBUG
 //#define TechCom											/*テストコース設定*/
 //#define Ground
-//#define Garden
-#define HappiTow
+#define Garden
+//#define HappiTow
 
 #ifdef TechCom
 NeoGPS::Location_t cp1(365759506L,1400158539L);
 NeoGPS::Location_t cp2(365760193L,1400160370L);
 #elif defined Garden
-NeoGPS::Location_t cp1(365780250L,1400148840L);
-NeoGPS::Location_t cp2(365780740L,1400150240L);
+NeoGPS::Location_t cp1(365780240L,1400148780L);
+NeoGPS::Location_t cp2(365780920L,1400151410L);
 #elif defined Ground
-NeoGPS::Location_t cp1(365835260L,1400109670L);
-NeoGPS::Location_t cp2(365833660L,1400110270L);
+NeoGPS::Location_t cp1(365833090L,1400104240L);
+NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
 NeoGPS::Location_t cp1(365679436L,1399957886L);
 NeoGPS::Location_t cp2(365680389L,1399957886L);
 #endif
+
 NeoGPS::Location_t cp[2] = {cp1,cp2};
 NeoGPS::Location_t locCenter((long)(0.5*(cp[0].lat()+cp[1].lat())),(long)(5*(0.1 * cp[0].lon()+ 0.1 * cp[1].lon())));
+NeoGPS::Location_t cpAway[2] = {cp1,cp2};
+
 NeoGPS::Location_t relPos2D;
 static NMEAGPS  gps;
 static gps_fix  fix;
@@ -66,17 +65,16 @@ Scheduler runner;
 VectorFloat rpyAngle;
 VectorFloat rpyRate;
 VectorFloat acc;                                                  /*X,Y,Z加速度(m/s^2)*/
-float relHeading,relYawAngle; 																		/*CP間中心線からの相対角度(Heading:CW+,Yaw:CCW+)*/
-float relHeadingTgt[2],relYawAngleTgt[2];													/*CPまでの相対位置,角度(Heading:CW+,Yaw:CCW+)*/
+float relHeading;							 																		/*CP間中心線からの相対角度(Heading:CW+,Yaw:CCW+)*/
+float relHeadingTgt[2];																						/*CPまでの角度(Heading:CW+)*/
 float heading, headingDeg;																				/*方位(rad,deg)*/
 float yawRtGPS;
 float headingOffst = cp[1].BearingTo(cp[0]);											/*CP間の方位*/
 float gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
 polVectorFloat3D centerPos;
 uint8_t sats;
-int puPwm = 90;
+int puPwm = 90;																									/*パワーユニットのPWM*/
 int fStrPwm = 90;                                               /*ステアリングのPWM*/
-bool started;
 
 // ================================================================
 // ===               				Prototype Def.			                ===
@@ -95,10 +93,6 @@ Task T1000(1000, TASK_FOREVER, &Task1000ms, &runner,true);
 // ================================================================
 // ===                       Course Variable                    ===
 // ================================================================
-float courseAngle;                  /*コースの中心XYの角度*/
-VectorFloat clippingPoint2D[2];
-//VectorFloat startLatLon[2];
-//VectorFloat goalLatLon[2];
 
 // ================================================================
 // ===                      INITIAL SETUP                       ===
@@ -113,7 +107,7 @@ void setup()
 	//IMU.setI2CBypassEnabled(true);
 	//IMU.setSleepEnabled(false);
 	IMU.initialize();
-	MAG.initialize();
+	//MAG.initialize();
 	IMU.setXGyroOffset(50);
 	IMU.setYGyroOffset(-35);
 	IMU.setZGyroOffset(20);
@@ -124,6 +118,8 @@ void setup()
 	PowUnit.attach(2,1000,2000);
 	Serial.flush();
 	runner.startNow();
+	cpAway[0].OffsetBy( 0.01 / NeoGPS::Location_t::EARTH_RADIUS_KM, cp[1].BearingTo(cp[0]));
+	cpAway[1].OffsetBy( 0.01 / NeoGPS::Location_t::EARTH_RADIUS_KM, cp[0].BearingTo(cp[1]));
 	Initwait();
 }
 
@@ -182,9 +178,7 @@ void GPSupdate(void)
 	lastTime ? sampleTime = (millis() - lastTime)*0.001 : 0;
 	lastTime = millis();
 	if(fix.valid.location) {
-		NeoGPS::Location_t cpAway[2] = {cp[0],cp[1]};
 		for(int8_t i=0;i<2;i++){
-			cpAway[i].OffsetBy( 0.01 / NeoGPS::Location_t::EARTH_RADIUS_KM, fix.location.BearingTo(cp[i]));
 			distToCP[i].r = fix.location.DistanceKm(cp[i]) * 1000.0f;
 			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //直進時制御用のリファレンス方位
 			distToCP[i].p = fix.location.BearingTo(cp[i]); //旋回開始判定用の方位
@@ -198,10 +192,8 @@ void GPSupdate(void)
 		heading ? yawRtGPS = -CalcRPYRate(heading,fix.heading() * 0.01745329251,sampleTime) : 0;
 		heading = fix.heading() * 0.01745329251;
 		heading && headingOffst ? relHeading = RoundRadPosNeg(heading - headingOffst) : 0;
-		relHeading ? relYawAngle = -relHeading : 0;
 		for(int8_t i=0;i<2;i++){
 			distToCP[i].t ? relHeadingTgt[i] = RoundRadPosNeg(heading-distToCP[i].t) : 0;
-			relHeadingTgt[i] ? relYawAngleTgt[i] = -relHeadingTgt[i] : 0;
 			}
 		}
 #ifdef DEBUG_GPS
@@ -209,7 +201,7 @@ void GPSupdate(void)
 	Serial.print(",Lat:,"); Serial.print(fix.latitude(),8); Serial.print(",Lon:,"); Serial.print(fix.longitude(),8);
 	Serial.print(",PosN:,"); Serial.print(centerPos.r * cos(centerPos.t)); Serial.print(",PosE:,"); Serial.print(centerPos.r * sin(centerPos.t));
 	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",relHeading:,");Serial.print(relHeading);
-	Serial.print(",relYawAngle:,"); Serial.print(relYawAngle);Serial.print(",YawRtGPS:,"); Serial.print(yawRtGPS);Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+	Serial.print(",YawRtGPS:,"); Serial.print(yawRtGPS);Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
 #endif
 }
 
@@ -227,7 +219,6 @@ void IMUupdate(void)
 	float sampleTime;
 	sampleTime = T10.getInterval() * 0.001;
 	VectorFloat rpyAngleDeg;
-	//FilterOnePole lowpassFilter(LOWPASS, 5.0);
 
 	IMU.getMotion6(&aix, &aiy, &aiz, &gix, &giy, &giz);
 
@@ -319,22 +310,6 @@ float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
 	return buf;
 }
 
-float Deadzone(float inputValue,float upperDeadzone,float lowerDeadzone,float center)
-{
-	float buf;
-	if(inputValue>upperDeadzone){
-		buf = inputValue;
-	}
-	else if(inputValue<lowerDeadzone){
-		buf = inputValue;
-	}
-	else{
-		buf = center;
-	}
-	return buf;
-}
-
-
 
 /************************************************************************
  * FUNCTION : IMU更新処理
@@ -350,35 +325,6 @@ void Initwait(void)
 	while (Serial.available() && Serial.read()) ; // empty buffer again
 }
 
-/************************************************************************
- * FUNCTION : コース設定
- * INPUT    : なし
- * OUTPUT   : なし
- ***********************************************************************/
-void SetCourseData(float altitude, float geoid)
-{
-
-}
-/************************************************************************
- * FUNCTION : コース中心からの相対位置計算
- * INPUT    : GPS緯度経度、標高、ジオイド高、コース中心位置(ECEF座標)、コースの角度(ECEF座標)
- * OUTPUT   : なし
- ***********************************************************************/
-VectorFloat getRelPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
-{
-
-}
-
-
-/************************************************************************
- * FUNCTION : 現在位置推定
- * INPUT    : GPS緯度経度、標高、ジオイド高、コース中心位置(ECEF座標)、コースの角度(ECEF座標)
- * OUTPUT   : なし
- ***********************************************************************/
-VectorFloat GetEstPosition(polVectorFloat3D latlon, float alt, float geoid, VectorFloat center, float courseAngle)
-{
-
-}
 
 /************************************************************************
  * FUNCTION : サーボ出力(テスト中)
@@ -406,39 +352,32 @@ void IntegratedChassisControl(void)
 	static float targetAngleCP,targetYawRtCP;
 	int8_t mode;
 	VectorFloat targetpoint;
-	mode = StateManager(cp,distToCP,centerPos,relYawAngleTgt,relHeading);
+	mode = StateManager(cp,distToCP,centerPos,relHeading);
 	mode > 0 ? puPwm = 120 : puPwm = 90;
 	switch (mode) {
-	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
+	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relHeadingTgt[0],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
 	case 2: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,1.0f);
 					break;
 
-	case 3: targetYawRtCP = CalcTargetYawRt(distToCP[1],relYawAngleTgt[1],gpsSpeedmps);
+	case 3: targetYawRtCP = CalcTargetYawRt(distToCP[1],relHeadingTgt[1],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
-	case 4: //targetpoint.x = clippingPoint2D[1].x-3;
-					//targetpoint.y = clippingPoint2D[1].y;
-					targetYawRtCP = CalcTargetYawRt(distToCP[1],relYawAngleTgt[1],gpsSpeedmps);
+	case 4: targetYawRtCP = CalcTargetYawRt(distToCP[1],relHeadingTgt[1],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
 	case 5: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,-1.0f);
 					break;
 
-	case 6: //targetYawRtCP = CalcTargetYawRt(mode,pos2D,clippingPoint2D[0]);
-					targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
+	case 6:	targetYawRtCP = CalcTargetYawRt(distToCP[0],relHeadingTgt[0],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					//fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
 					break;
 
-	default:fStrPwm = 90;
+	default:fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);											/*コース外ではγ-FBのデモを行う*/
 					break;
 	}
 	#if 1
@@ -457,12 +396,12 @@ void IntegratedChassisControl(void)
  *
  * OUTPUT   : 状態値
  ***********************************************************************/
-int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relYawAngleTgt[],float relHeading)
+int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
 	static int8_t mode;
 	float sampleTime;
 	sampleTime = T10.getInterval() * 0.001;
-	if(sats && centerPos.r < 15) {			//コース中央から半径20m内
+	if(sats && centerPos.r < 30) {			//コース中央から半径30m内
 		if((mode != 1 || mode != 4) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
 			cos(relHeading) > 0 ? mode = 1 : mode = 4;
 		}
@@ -491,14 +430,16 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
-float CalcTargetYawRt(polVectorFloat3D distToCP,float relYawAngleTgt,float gpsSpeedmps)
+float CalcTargetYawRt(polVectorFloat3D distToCP,float relHeadingTgt,float gpsSpeedmps)
 {
 	float TargetYawRt;
-	TargetYawRt = gpsSpeedmps * sin(-relYawAngleTgt)/distToCP.r;
-	Serial.print(",relYaw:,");Serial.print(relYawAngleTgt);
+	TargetYawRt = gpsSpeedmps * sin(relHeadingTgt)/distToCP.r;			/*本来はコースに対するヨー角の偏差を入力すべきだが負荷削減のためrelHeadingTgtで代用*/
+#if DEBUG
+	Serial.print(",relYaw:,");Serial.print(relHeadingTgt);
 	Serial.print(",distToCP:,"); Serial.print(distToCP.r);
 	Serial.print(",tgtYawRt:,"); Serial.println(TargetYawRt);
 	return TargetYawRt;
+#endif
 }
 
 
@@ -546,50 +487,6 @@ float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYa
 }
 
 /************************************************************************
- * FUNCTION : 操舵制御指示値演算(ヨー角フィードバック)
- * INPUT    : CPまでの目標角度、ヨーレート、
- *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
- * OUTPUT   : 操舵制御指示値(サーボ角)
- ***********************************************************************/
-float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relHeading)
-{
-	float sampleTime;
-	float kp = 5,ti = 0.4 ,td = 0.1;
-	float relTA,diff;
-	static float err[3], yawA,relTAOff,lastvalue;
-	static int lastMode;
-
-	!value ? value = 90 : 0;
-	sampleTime = T10.getInterval() * 0.001;
-
-	if(mode != lastMode) {
-		yawA -= rpyAngle.z;
-		relTAOff = relHeading;
-	}
-	yawA += rpyRate.z * sampleTime;
-	relTA = RoundRad(targetAngleCP - relTAOff);
-	err[0] = relTA - yawA;
-
-	if(err[2] != 0){
-	value = lastvalue + kp * ( err[0] - err[1] + sampleTime / ti * err[0] + td / sampleTime * (err[0] - 2 * err[1] + err[2]));
-	}
-	value = LimitValue(value,120,60);
-	err[1] = err[0];
-	err[2] = err[1];
-	lastvalue = value;
-	lastMode = mode;
-
-#if 0
-	#ifdef DEBUG
-	Serial.print(",Mode:,"); Serial.print(mode);
-	Serial.print(",err:,"); Serial.print(err[0]); Serial.print(",yawA:,"); Serial.print(yawA); Serial.print(",TgtAngle:,"); Serial.print(relTA);
-	Serial.print(",yawAngle:,"); Serial.print(yawA); Serial.print(",value:,"); Serial.println(value);
-	#endif
-#endif
-	return value;
-}
-
-/************************************************************************
  * FUNCTION : 速度コントロール
  * INPUT    :
  *
@@ -599,28 +496,6 @@ float SpdControlPID(void)
 {
 }
 
-
-int BrakeCtrl(float targetSpeed, float nowSpeedmps, float maxDecelAx)
-{
-	if(targetSpeed) {
-		if(nowSpeedmps > targetSpeed) {
-			acc.x > -maxDecelAx ? puPwm += 0.5 : puPwm -= 0.05;
-		}
-		else if(puPwm > 92) {        //バック防止
-			puPwm = 92;
-		}
-	}
-	else{                                //停止したい場合
-		if(nowSpeedmps > 0.5) {
-			acc.x > -maxDecelAx ? puPwm += 1.0 : puPwm -= 0.05;
-		}
-		else if(puPwm > 92) {      //バック防止
-			puPwm = 92;
-		}
-	}
-	puPwm = LimitValue(puPwm,180,0);
-	return puPwm;
-}
 
 
 float convertRawAcceleration(int aRaw)
