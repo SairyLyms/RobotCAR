@@ -103,11 +103,7 @@ void setup()
 	Wire.begin();
 	Serial.begin(115200);
 	Serial1.begin(38400);
-	//IMU.setI2CMasterModeEnabled(false);
-	//IMU.setI2CBypassEnabled(true);
-	//IMU.setSleepEnabled(false);
 	IMU.initialize();
-	//MAG.initialize();
 	IMU.setXGyroOffset(50);
 	IMU.setYGyroOffset(-35);
 	IMU.setZGyroOffset(20);
@@ -118,8 +114,6 @@ void setup()
 	PowUnit.attach(2,1000,2000);
 	Serial.flush();
 	runner.startNow();
-	cpAway[0].OffsetBy( 0.01 / NeoGPS::Location_t::EARTH_RADIUS_KM, cp[1].BearingTo(cp[0]));
-	cpAway[1].OffsetBy( 0.01 / NeoGPS::Location_t::EARTH_RADIUS_KM, cp[0].BearingTo(cp[1]));
 	Initwait();
 }
 
@@ -131,7 +125,6 @@ void setup()
 void Task10ms(void)
 {
 	IMUupdate();
-	//MAGupdate();
 	IntegratedChassisControl();
 }
 
@@ -152,7 +145,6 @@ void Task20ms(void)
  ***********************************************************************/
 void Task100ms(void)
 {
-	//Serial.print(GPS.course.deg());
 }
 
 /************************************************************************
@@ -162,7 +154,6 @@ void Task100ms(void)
  ***********************************************************************/
 void Task1000ms(void)
 {
-	//Serial.println(millis());
 }
 
 /************************************************************************
@@ -288,28 +279,6 @@ void IMUupdate(void)
 	 Serial.println(heading * 180/M_PI);
  }
 
-float CalcRPYRate(float preAngle,float nowAngle,float sampleTime)
-{
-	float rate;
-	rate = nowAngle - preAngle;
-	if( rate < -3.14 ){
-		rate += 6.28;
-	}
-	else if( rate > 3.14 ){
-		rate -= 6.28;
-	}
-	rate /= sampleTime;
-  return rate;
-}
-
-float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
-{
-	float buf;
-	buf = min(inputValue,upperLimitValue);
-	buf = max(buf,lowerLimitValue);
-	return buf;
-}
-
 
 /************************************************************************
  * FUNCTION : IMU更新処理
@@ -350,35 +319,55 @@ void ChassisFinalOutput(int puPwm,int fStrPwm)
 void IntegratedChassisControl(void)
 {
 	static float targetAngleCP,targetYawRtCP;
-	int8_t mode;
+	int8_t key;
+	static int8_t select;
 	VectorFloat targetpoint;
-	mode = StateManager(cp,distToCP,centerPos,relHeading);
-	mode > 0 ? puPwm = 120 : puPwm = 90;
-	switch (mode) {
-	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relHeadingTgt[0],gpsSpeedmps);
-					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
+	key = Serial.read();
+	switch (key) {
+	case 'a': select = 1;break;
+
+	case 'd': select = 2;break;
+
+	case '0':
+					if(select == 1){
+						puPwm = 90;
+					}
+					else if(select == 2){
+						fStrPwm = 90;
+					}
+					else{
+						fStrPwm = 90;
+						puPwm = 90;
+					}
 					break;
 
-	case 2: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,1.0f);
-					break;
+	case '1':
+				if(select == 1){
+					puPwm+= 5;
+					Serial.print("PuPwm:,"); Serial.println(puPwm);
+				}
+				else if(select == 2){
+					fStrPwm+= 5;
+					Serial.print("StrPwm:,"); Serial.println(fStrPwm);
+				}
+				else{
+				}
+	break;
 
-	case 3: targetYawRtCP = CalcTargetYawRt(distToCP[1],relHeadingTgt[1],gpsSpeedmps);
-					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					break;
-
-	case 4: targetYawRtCP = CalcTargetYawRt(distToCP[1],relHeadingTgt[1],gpsSpeedmps);
-					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					break;
-
-	case 5: fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,-1.0f);
-					break;
-
-	case 6:	targetYawRtCP = CalcTargetYawRt(distToCP[0],relHeadingTgt[0],gpsSpeedmps);
-					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
-					break;
-
-	default:fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);											/*コース外ではγ-FBのデモを行う*/
-					break;
+	case '2':
+				if(select == 1){
+					puPwm-= 5;
+					Serial.print("PuPwm:,"); Serial.println(puPwm);
+				}
+				else if(select == 2){
+					fStrPwm-= 5;
+					Serial.print("StrPwm:,"); Serial.println(fStrPwm);
+				}
+				else{
+				}
+	break;
+	default:
+	break;
 	}
 	#if 1
 	#ifdef DEBUG
@@ -399,30 +388,8 @@ void IntegratedChassisControl(void)
 int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
 	static int8_t mode;
-	float sampleTime;
-	sampleTime = T10.getInterval() * 0.001;
-	if(sats && centerPos.r < 30) {			//コース中央から半径30m内
-		if((mode != 1 || mode != 4) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
-			cos(relHeading) > 0 ? mode = 1 : mode = 4;
-		}
-		if((mode != 2 || mode != 3) && cos(distToCP[0].p) > 0) {mode = 2;}
-		if((mode != 5 || mode != 6) && cos(distToCP[1].p) < 0) {mode = 5;}
-		if(mode == 2){
-			sin(relHeading) > 0 && cos(relHeading) < 0 ? mode += 1 : 0;
-		}
-		if(mode == 5){
-			sin(relHeading) > 0 && cos(relHeading) > 0 ? mode += 1 : 0;
-		}
-	}
-	else{
-		mode = -1;
-	}
-	//Serial.print(",mode:,"); Serial.println(mode);
-	//Serial.print(",relHead:,"); Serial.print(relHeading);
-	//Serial.print(",HeadtoCp0:,"); Serial.print(distToCP[0].p);
-	//Serial.print(",HeadtoCp1:,"); Serial.println(distToCP[1].p);
-	return mode;
 
+	return mode;
 }
 
 /************************************************************************
@@ -441,7 +408,6 @@ float CalcTargetYawRt(polVectorFloat3D distToCP,float relHeadingTgt,float gpsSpe
 	return TargetYawRt;
 #endif
 }
-
 
 /************************************************************************
  * FUNCTION : 操舵制御指示値演算(ヨーレートフィードバック)
@@ -542,6 +508,29 @@ float RoundDeg(float x) //角度を表す変数を0～360degの範囲に収め�
 	}
 	return x;
 }
+
+float CalcRPYRate(float preAngle,float nowAngle,float sampleTime)
+{
+	float rate;
+	rate = nowAngle - preAngle;
+	if( rate < -3.14 ){
+		rate += 6.28;
+	}
+	else if( rate > 3.14 ){
+		rate -= 6.28;
+	}
+	rate /= sampleTime;
+  return rate;
+}
+
+float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
+{
+	float buf;
+	buf = min(inputValue,upperLimitValue);
+	buf = max(buf,lowerLimitValue);
+	return buf;
+}
+
 void loop()
 {
 	runner.execute();
