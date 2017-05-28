@@ -26,7 +26,7 @@
 polVectorFloat3D distToCP[2];
 
 #define CC01
-//#define DEBUG_IMU
+#define DEBUG_IMU
 //#define DEBUG_GPS
 //#define DEBUG
 //#define TechCom											/*テストコース設定*/
@@ -67,6 +67,7 @@ float relHeading;							 																		/*CP間中心線からの相対角度
 float relHeadingTgt[2];																						/*CPまでの角度(Heading:CW+)*/
 float heading, headingDeg;																				/*方位(rad,deg)*/
 float headingOffst = cp[1].BearingTo(cp[0]);											/*CP間の方位*/
+float headingOffstIMU;
 float gpsSpeedmps;                                               /*GPS絶対速度(m/s)*/
 polVectorFloat3D centerPos;
 uint8_t sats;
@@ -254,7 +255,9 @@ void IMUupdate(void)
 	Serial.print(rpyRate.y);
 	Serial.print(",");
 	Serial.print("yawRt, ");
-	Serial.println(rpyRate.z);
+	Serial.print(rpyRate.z);
+	Serial.print("yawAng, ");
+	Serial.println(rpyAngle.z);
 #endif
 }
 
@@ -314,12 +317,14 @@ void IntegratedChassisControl(void)
 	switch (0) {
 	//0:デバッグ用
 	case 0:
-					fStrPwm = StrControlPIDAng(mode,fStrPwm,rpyAngle.z,3.14);
 					break;
+	//1:ヨー角キャリブレーション用
 	case 1:
+					fStrPwm = StrControlPIDAng(mode,fStrPwm,rpyRate.z,0);
 					break;
 
 	case 2:
+					RoundRadPosNeg(rpyAngle.z-headingOffstIMU);
 					break;
 
 	case 3:
@@ -332,6 +337,9 @@ void IntegratedChassisControl(void)
 					break;
 
 	case 6:
+					break;
+
+	case 7:
 					break;
 
 	default:fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate.z,0);											/*コース外ではγ-FBのデモを行う*/
@@ -355,19 +363,26 @@ void IntegratedChassisControl(void)
  ***********************************************************************/
 int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
-	static int8_t mode;
-	float sampleTime;
-	sampleTime = T10.getInterval() * 0.001;
+	static int8_t mode,initCount;
+	static float buf = 0;
 	if(sats && centerPos.r < 30) {			//コース中央から半径30m内
-		if((mode != 1 || mode != 4) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
-			cos(relHeading) > 0 ? mode = 1 : mode = 4;
+		if(i < 100){
+			mode = 1;
+			i >= 80 ? buf += heading : 0;
+			if(i == 99){
+				headingOffstIMU = buf * 0.05;
+			}
+			initCount++;
 		}
-		if((mode != 2 || mode != 3) && cos(distToCP[0].p) > 0) {mode = 2;}
-		if((mode != 5 || mode != 6) && cos(distToCP[1].p) < 0) {mode = 5;}
-		if(mode == 2){
+		else if((mode != 2 || mode != 5) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
+			cos(relHeading) > 0 ? mode = 2 : mode = 5;
+		}
+		else if((mode != 3 || mode != 4) && cos(distToCP[0].p) > 0) {mode = 3;}
+		else if((mode != 6 || mode != 7) && cos(distToCP[1].p) < 0) {mode = 6;}
+		else if(mode == 3){
 			sin(relHeading) > 0 && cos(relHeading) < 0 ? mode += 1 : 0;
 		}
-		if(mode == 5){
+		else if(mode == 6){
 			sin(relHeading) > 0 && cos(relHeading) > 0 ? mode += 1 : 0;
 		}
 	}
@@ -379,40 +394,7 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 	//Serial.print(",HeadtoCp0:,"); Serial.print(distToCP[0].p);
 	//Serial.print(",HeadtoCp1:,"); Serial.println(distToCP[1].p);
 	return mode;
-
 }
-/************************************************************************
- * FUNCTION : CP間走行時制御
- * INPUT    : なし
- * OUTPUT   : なし
- ***********************************************************************/
- float ControlP2P(int8_t mode, float value,float yawRate,float yawAngle,float Targetheading)
- {
-	 float headingimu,controlValue;
-	 static float yawAngleOffst = 0;
-	 static int8_t i,lastMode;
-
-	 if(mode != lastMode){
-		 yawAngleOffst = 0;
-		 i = 0;
-	 }
-	 if(i < 50){
-		 controlValue = StrControlPID(mode, value, yawRate,0);
-		 i <= 40 ? yawAngleOffst -= (yawAngle + heading):0;
-		 i == 49 ? yawAngleOffst *= 0.1 : 0;
-		 i++;
-	 }
-	 else{
-		 headingimu = RoundRadPosNeg(RoundRad(yawAngle + yawAngleOffst));
-		 controlValue = StrControlPIDAng(mode,value,headingimu,Targetheading);
-	 }
-	 //Serial.print("ImuYawA:,"); Serial.print(heading);
-	 //Serial.print("Headimu:,"); Serial.println(headingimu);
-
-	 lastMode = mode;
-	 return controlValue;
- }
-
 
 /************************************************************************
  * FUNCTION : 操舵制御指示値演算(ヨーレートフィードバック)
