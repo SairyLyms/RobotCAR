@@ -352,10 +352,14 @@ void IntegratedChassisControl(void)
 	static float targetAngleCP,targetYawRtCP;
 	int8_t mode;
 	VectorFloat targetpoint;
-	mode = StateManager(cp,distToCP,centerPos,relHeading);
+	mode = StateManager(cp,distToCP,centerPos,relYawAngleTgt,relHeading);
 	mode > 0 ? puPwm = 120 : puPwm = 90;
 	switch (mode) {
-	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relHeadingTgt[0],gpsSpeedmps);
+	//0:デバッグ用
+	case 0: //targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
+					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,0);
+					break;
+	case 1: targetYawRtCP = CalcTargetYawRt(distToCP[0],relYawAngleTgt[0],gpsSpeedmps);
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate,targetYawRtCP);
 					break;
 
@@ -487,6 +491,93 @@ float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYa
 }
 
 /************************************************************************
+<<<<<<< Updated upstream
+=======
+ * FUNCTION : 操舵制御指示値演算(ヨー角フィードバック)
+ * INPUT    : CPまでの目標角度、ヨーレート、
+ *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+ float StrControlPIDAng(int8_t mode, float value, float relYawAngleTgt)
+ {
+ 	float sampleTime;
+ #ifdef CC01
+ 	float kp = 0.5,ti = 0.1 ,td = 0.25,diff;
+ #else
+ 	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
+ #endif
+ 	static float err,lastyawAngle;
+ 	static int8_t lastMode;
+ 	if(mode != lastMode){
+ 		err = 0;
+ 		lastyawAngle = 0;
+ 	}
+ 	!value ? value = 90 : 0;
+ 	sampleTime = T10.getInterval() * 0.001;
+ 	err  += relYawAngleTgt * sampleTime;
+ 	diff = 	(relYawAngleTgt - lastyawAngle) / sampleTime;
+
+   value +=  kp * (err/ti - (relYawAngleTgt + td * diff));
+
+ 	value = LimitValue(value,120,60);
+
+ 	lastyawAngle = relYawAngleTgt;
+ 	lastMode = mode;
+ #if 0
+ 	#ifdef DEBUG
+ 	Serial.print("Time,");Serial.print(millis());
+ 	Serial.print(",err:,"); Serial.print(err);Serial.print(",diff:,"); Serial.print(diff); Serial.print(",TGTYawRt:,"); Serial.print(targetYawRt); Serial.print(",YawRt:,"); Serial.print(rpyRate.z);
+ 	Serial.print(",value:,"); Serial.println(value);
+ 	#endif
+ #endif
+
+ return value;
+
+ }
+
+
+
+#if 0
+float StrControlPIDAng(float value,int8_t mode, VectorFloat rpyAngle,VectorFloat rpyRate,float targetAngleCP,float relHeading)
+{
+	float sampleTime;
+	float kp = 5,ti = 0.4 ,td = 0.1;
+	float relTA,diff;
+	static float err[3], yawA,relTAOff,lastvalue;
+	static int lastMode;
+
+	!value ? value = 90 : 0;
+	sampleTime = T10.getInterval() * 0.001;
+
+	if(mode != lastMode) {
+		yawA -= rpyAngle.z;
+		relTAOff = relHeading;
+	}
+	yawA += rpyRate.z * sampleTime;
+	relTA = RoundRad(targetAngleCP - relTAOff);
+	err[0] = relTA - yawA;
+
+	if(err[2] != 0){
+	value = lastvalue + kp * ( err[0] - err[1] + sampleTime / ti * err[0] + td / sampleTime * (err[0] - 2 * err[1] + err[2]));
+	}
+	value = LimitValue(value,120,60);
+	err[1] = err[0];
+	err[2] = err[1];
+	lastvalue = value;
+	lastMode = mode;
+
+#if 0
+	#ifdef DEBUG
+	Serial.print(",Mode:,"); Serial.print(mode);
+	Serial.print(",err:,"); Serial.print(err[0]); Serial.print(",yawA:,"); Serial.print(yawA); Serial.print(",TgtAngle:,"); Serial.print(relTA);
+	Serial.print(",yawAngle:,"); Serial.print(yawA); Serial.print(",value:,"); Serial.println(value);
+	#endif
+#endif
+	return value;
+}
+#endif
+/************************************************************************
+>>>>>>> Stashed changes
  * FUNCTION : 速度コントロール
  * INPUT    :
  *
