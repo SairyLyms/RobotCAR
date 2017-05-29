@@ -26,7 +26,7 @@
 polVectorFloat3D distToCP[2];
 
 #define CC01
-#define DEBUG_IMU
+//#define DEBUG_IMU
 //#define DEBUG_GPS
 //#define DEBUG
 //#define TechCom											/*テストコース設定*/
@@ -312,40 +312,44 @@ void IntegratedChassisControl(void)
 	int8_t mode;
 	VectorFloat targetpoint;
 	mode = StateManager(cp,distToCP,centerPos,relHeading);
-	mode > 0 ? puPwm = 110 : puPwm = 90;
 	//switch (mode){
-	switch (0) {
+	switch (mode) {
 	//0:デバッグ用
 	case 0:
+					puPwm = 90;
 					break;
 	//1:ヨー角キャリブレーション用
 	case 1:
-					fStrPwm = StrControlPIDAng(mode,fStrPwm,rpyRate.z,0);
+					puPwm = 110;
+					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,0);
 					break;
 
-	case 2:
-					RoundRadPosNeg(rpyAngle.z-headingOffstIMU);
+	case 2:	puPwm = 110;
+					fStrPwm = StrControlPIDAng(mode,fStrPwm,RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst),0);
 					break;
 
-	case 3:
+	case 3: puPwm = 90;
+					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,1);
 					break;
 
-	case 4:
+	case 4: puPwm = 90;
 					break;
 
-	case 5:
+	case 5: puPwm = 90;
 					break;
 
-	case 6:
+	case 6: puPwm = 90;
 					break;
 
-	case 7:
+	case 7: puPwm = 90;
 					break;
 
-	default:fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate.z,0);											/*コース外ではγ-FBのデモを行う*/
+	default:puPwm = 90;
+					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate.z,0);											/*コース外ではγ-FBのデモを行う*/
 					break;
 	}
-	#if 1
+	Serial.print(",RoundRadPosNeg");Serial.println(RoundRadPosNeg(rpyAngle.z-headingOffstIMU + headingOffst));
+	#if 0
 	#ifdef DEBUG
 	//Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
 	//Serial.print(",TgtYawRt:,"); Serial.print(targetYawRtCP);Serial.print(",yawRate:,"); Serial.print(rpyRate.z,6); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
@@ -363,14 +367,16 @@ void IntegratedChassisControl(void)
  ***********************************************************************/
 int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
-	static int8_t mode,initCount;
+	static int8_t mode;
+	static uint16_t initCount;
 	static float buf = 0;
 	if(sats && centerPos.r < 30) {			//コース中央から半径30m内
-		if(i < 100){
+		if(initCount < 500){
 			mode = 1;
-			i >= 80 ? buf += heading : 0;
-			if(i == 99){
-				headingOffstIMU = buf * 0.05;
+			if(initCount == 499){
+				headingOffstIMU = heading;
+				Serial.print("Done:");Serial.println(headingOffstIMU);
+				mode = 2;
 			}
 			initCount++;
 		}
@@ -389,7 +395,7 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 	else{
 		mode = -1;
 	}
-	//Serial.print(",mode:,"); Serial.println(mode);
+	Serial.print(",mode:,"); Serial.println(mode);
 	//Serial.print(",relHead:,"); Serial.print(relHeading);
 	//Serial.print(",HeadtoCp0:,"); Serial.print(distToCP[0].p);
 	//Serial.print(",HeadtoCp1:,"); Serial.println(distToCP[1].p);

@@ -36,7 +36,6 @@
 
 //-------------------------------------------------------------------------------------------
 // AHRS algorithm update
-
 Madgwick::Madgwick() {
 	beta = betaDef;
 	q0 = 1.0f;
@@ -53,9 +52,6 @@ void Madgwick::update(float gx, float gy, float gz, float ax, float ay, float az
 	float qDot1, qDot2, qDot3, qDot4;
 	float hx, hy;
 	float _2q0mx, _2q0my, _2q0mz, _2q1mx, _2bx, _2bz, _4bx, _4bz, _2q0, _2q1, _2q2, _2q3, _2q0q2, _2q2q3, q0q0, q0q1, q0q2, q0q3, q1q1, q1q2, q1q3, q2q2, q2q3, q3q3;
-	static uint32_t lastProcessTime;
-
-	lastProcessTime == 0 ? 0 : invSampleFreq = (millis() - lastProcessTime) * 0.001f;
 
 	// Use IMU algorithm if magnetometer measurement invalid (avoids NaN in magnetometer normalisation)
 	if((mx == 0.0f) && (my == 0.0f) && (mz == 0.0f)) {
@@ -150,9 +146,6 @@ void Madgwick::update(float gx, float gy, float gz, float ax, float ay, float az
 	q2 *= recipNorm;
 	q3 *= recipNorm;
 	anglesComputed = 0;
-
-	lastProcessTime = millis();
-
 }
 
 //-------------------------------------------------------------------------------------------
@@ -163,9 +156,6 @@ void Madgwick::updateIMU(float gx, float gy, float gz, float ax, float ay, float
 	float s0, s1, s2, s3;
 	float qDot1, qDot2, qDot3, qDot4;
 	float _2q0, _2q1, _2q2, _2q3, _4q0, _4q1, _4q2 ,_8q1, _8q2, q0q0, q1q1, q2q2, q3q3;
-	static uint32_t lastProcessTime;
-
-  lastProcessTime == 0 ? 0 : invSampleFreq = (millis() - lastProcessTime) * 0.001f;
 
 	// Convert gyroscope degrees/sec to radians/sec
 	gx *= 0.0174533f;
@@ -233,9 +223,6 @@ void Madgwick::updateIMU(float gx, float gy, float gz, float ax, float ay, float
 	q2 *= recipNorm;
 	q3 *= recipNorm;
 	anglesComputed = 0;
-
-	lastProcessTime = millis();
-
 }
 
 //-------------------------------------------------------------------------------------------
