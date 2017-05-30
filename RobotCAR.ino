@@ -33,24 +33,24 @@ polVectorFloat3D distToCP[2];
 //#define Ground
 //#define Garden
 #define HappiTow
-
 #ifdef TechCom
-NeoGPS::Location_t cp1(365759506L,1400158539L);
-NeoGPS::Location_t cp2(365760193L,1400160370L);
+NeoGPS::Location_t cp0(365759506L,1400158539L);
+NeoGPS::Location_t cp1(365760193L,1400160370L);
 #elif defined Garden
-NeoGPS::Location_t cp1(365780240L,1400148780L);
-NeoGPS::Location_t cp2(365780920L,1400151410L);
+NeoGPS::Location_t cp0(365780240L,1400148780L);
+NeoGPS::Location_t cp1(365780920L,1400151410L);
 #elif defined Ground
-NeoGPS::Location_t cp1(365833090L,1400104240L);
-NeoGPS::Location_t cp2(365832140L,1400104870L);
+NeoGPS::Location_t cp0(365833090L,1400104240L);
+NeoGPS::Location_t cp1(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365679436L,1399957886L);
-NeoGPS::Location_t cp2(365680389L,1399957886L);
+NeoGPS::Location_t cp0(365680389L,1399955902L);
+NeoGPS::Location_t cp1(365679436L,1399955902L);
+
 #endif
 
-NeoGPS::Location_t cp[2] = {cp1,cp2};
+NeoGPS::Location_t cp[2] = {cp0,cp1};
 NeoGPS::Location_t locCenter((long)(0.5*(cp[0].lat()+cp[1].lat())),(long)(5*(0.1 * cp[0].lon()+ 0.1 * cp[1].lon())));
-NeoGPS::Location_t cpAway[2] = {cp1,cp2};
+NeoGPS::Location_t cpAway[2] = {cp0,cp1};
 
 NeoGPS::Location_t relPos2D;
 static NMEAGPS  gps;
@@ -194,7 +194,7 @@ void GPSupdate(void)
 	Serial.print(",Lat:,"); Serial.print(fix.latitude(),8); Serial.print(",Lon:,"); Serial.print(fix.longitude(),8);
 	Serial.print(",PosN:,"); Serial.print(centerPos.r * cos(centerPos.t)); Serial.print(",PosE:,"); Serial.print(centerPos.r * sin(centerPos.t));
 	Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",relHeading:,");Serial.print(relHeading);
-	Serial.print(",YawRtGPS:,"); Serial.print(yawRtGPS);Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
+	Serial.print(",Speed:,"); Serial.println(gpsSpeedmps);
 #endif
 }
 
@@ -308,9 +308,9 @@ void ChassisFinalOutput(int puPwm,int fStrPwm)
  ***********************************************************************/
 void IntegratedChassisControl(void)
 {
-	static float targetAngleCP,targetYawRtCP;
+	static float targetAngleCP = 0;
+	float relAngle;
 	int8_t mode;
-	VectorFloat targetpoint;
 	mode = StateManager(cp,distToCP,centerPos,relHeading);
 	//switch (mode){
 	switch (mode) {
@@ -322,33 +322,46 @@ void IntegratedChassisControl(void)
 	case 1:
 					puPwm = 110;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,0);
+					targetAngleCP = (RoundRadPosNeg(-(distToCP[0].t + headingOffst)));
 					break;
-
-	case 2:	puPwm = 110;
-					fStrPwm = StrControlPIDAng(mode,fStrPwm,RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst),0);
+  //2:CP0に向かって直進
+	case 2:	puPwm = 125;
+					relAngle = RoundRadPosNeg(rpyAngle.z - headingOffstIMU + headingOffst);
+					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
-
-	case 3: puPwm = 90;
+	//3:CP0で左旋回(ヨーレートFB)
+	case 3: puPwm = 110;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,1);
+					targetAngleCP = (RoundRad(-(distToCP[1].t + headingOffst)));
 					break;
-
-	case 4: puPwm = 90;
+	//3:CP0から脱出(ヨー角FB)
+	case 4: puPwm = 120;
+					relAngle = RoundRad(rpyAngle.z - headingOffstIMU + headingOffst);
+					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
-
-	case 5: puPwm = 90;
+  //5:CP1に向かって直進
+	case 5: puPwm = 125;
+					relAngle = RoundRad(rpyAngle.z - headingOffstIMU + headingOffst);
+					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
-
-	case 6: puPwm = 90;
+	//6:CP1で右旋回(ヨーレートFB)
+	case 6: puPwm = 110;
+					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,-1);
+					targetAngleCP = (RoundRadPosNeg(-(distToCP[0].t + headingOffst)));
 					break;
-
-	case 7: puPwm = 90;
+	//3:CP1から脱出(ヨー角FB)
+	case 7: puPwm = 120;
+					relAngle = RoundRadPosNeg(rpyAngle.z - headingOffstIMU + headingOffst);
+					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
 
 	default:puPwm = 90;
 					fStrPwm = (int)StrControlPID(mode,fStrPwm,rpyRate.z,0);											/*コース外ではγ-FBのデモを行う*/
 					break;
 	}
-	Serial.print(",RoundRadPosNeg");Serial.println(RoundRadPosNeg(rpyAngle.z-headingOffstIMU + headingOffst));
+	Serial.print(",mode,");Serial.print(mode);
+	Serial.print(",CP1,");Serial.print(relAngle);
+	Serial.print(",RoundRadPosNeg");Serial.println(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst));
 	#if 0
 	#ifdef DEBUG
 	//Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
@@ -376,29 +389,28 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 			if(initCount == 499){
 				headingOffstIMU = heading;
 				Serial.print("Done:");Serial.println(headingOffstIMU);
-				mode = 2;
 			}
 			initCount++;
 		}
-		else if((mode != 2 || mode != 5) && cos(distToCP[0].p) < 0 && cos(distToCP[1].p) > 0) {
-			cos(relHeading) > 0 ? mode = 2 : mode = 5;
+		else if(cos(distToCP[0].p + headingOffst) < 0 && cos(distToCP[1].p + headingOffst) > 0){
+			cos(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst)) > 0 ? mode = 2 : mode = 5;
 		}
-		else if((mode != 3 || mode != 4) && cos(distToCP[0].p) > 0) {mode = 3;}
-		else if((mode != 6 || mode != 7) && cos(distToCP[1].p) < 0) {mode = 6;}
+		else if(mode == 2 && cos(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst)) > 0) {mode = 3;}
+		else if(mode == 5 && cos(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst)) < 0) {mode = 6;}
 		else if(mode == 3){
-			sin(relHeading) > 0 && cos(relHeading) < 0 ? mode += 1 : 0;
+			RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst) > 3 ? mode += 1 : 0;
 		}
 		else if(mode == 6){
-			sin(relHeading) > 0 && cos(relHeading) > 0 ? mode += 1 : 0;
+			RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst) < -3 ? mode += 1 : 0;
 		}
 	}
 	else{
 		mode = -1;
 	}
-	Serial.print(",mode:,"); Serial.println(mode);
+	//Serial.print(",mode:,"); Serial.println(mode);
 	//Serial.print(",relHead:,"); Serial.print(relHeading);
 	//Serial.print(",HeadtoCp0:,"); Serial.print(distToCP[0].p);
-	//Serial.print(",HeadtoCp1:,"); Serial.println(distToCP[1].p);
+	//Serial.print(",Headtocp0:,"); Serial.println(distToCP[1].p);
 	return mode;
 }
 
