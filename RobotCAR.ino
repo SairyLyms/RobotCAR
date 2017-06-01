@@ -325,33 +325,33 @@ void IntegratedChassisControl(void)
 					targetAngleCP = (RoundRadPosNeg(-(distToCP[0].t + headingOffst)));
 					break;
   //2:CP0に向かって直進
-	case 2:	puPwm = 90;
+	case 2:	puPwm = 110;
 					relAngle = RoundRadPosNeg(rpyAngle.z - headingOffstIMU + headingOffst);
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
 	//3:CP0で左旋回(ヨーレートFB)
-	case 3: puPwm = 90;
+	case 3: puPwm = 110;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,1);
 					targetAngleCP = (RoundRad(-(distToCP[1].t + headingOffst)));
 					break;
 	//3:CP0から脱出(ヨー角FB)
-	case 4: puPwm = 90;
+	case 4: puPwm = 110;
 					relAngle = RoundRad(rpyAngle.z - headingOffstIMU + headingOffst);
 					//targetAngleCP = (RoundRad(-(distToCP[1].t + headingOffst)));
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
   //5:CP1に向かって直進
-	case 5: puPwm = 90;
+	case 5: puPwm = 110;
 					relAngle = RoundRad(rpyAngle.z - headingOffstIMU + headingOffst);
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
 	//6:CP1で右旋回(ヨーレートFB)
-	case 6: puPwm = 90;
+	case 6: puPwm = 110;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,-1);
 					targetAngleCP = (RoundRadPosNeg(-(distToCP[0].t + headingOffst)));
 					break;
 	//3:CP1から脱出(ヨー角FB)
-	case 7: puPwm = 90;
+	case 7: puPwm = 110;
 					relAngle = RoundRadPosNeg(rpyAngle.z - headingOffstIMU + headingOffst);
 					targetAngleCP = (RoundRadPosNeg(-(distToCP[0].t + headingOffst)));
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
@@ -385,30 +385,41 @@ void IntegratedChassisControl(void)
 int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
 	static int8_t mode,turn;
-	static uint16_t initCount;
+	static uint16_t count;
 	static float buf = 0;
 	if(sats && centerPos.r < 30) {			//コース中央から半径30m内
-		if(initCount < 500){
+		if(mode <= 1 && count < 500){
 			mode = 1;
-			if(initCount == 499){
-				headingOffstIMU = heading;
+			count == 300 ? buf = headingOffstIMU : 0;
+			count == 350 ? buf += headingOffstIMU : 0;
+			count == 400 ? buf += headingOffstIMU : 0;
+			count == 450 ? buf += headingOffstIMU : 0;
+		if(count == 499){
+				headingOffstIMU = buf * 0.25;
 				Serial.print("Done:");Serial.println(headingOffstIMU);
 			}
-			initCount++;
+			count++;
 		}
-		if(turn !=1 && cos(distToCP[0].p + headingOffst) > 0 && cos(distToCP[1].p + headingOffst) < 0 ){
+		else if((mode != 3 || mode != 6) && cos(distToCP[0].p + headingOffst) > 0 && cos(distToCP[1].p + headingOffst) < 0 ){
 				cos(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst)) > 0 ? mode = 2 : mode = 5;
+				count = 0;
+				turn = 0;
 		}
 		else{
-			trun = 1;
+			if(count > 300){
+				turn = 1;
+			}
+			else{
+				count++;
+			}
 		}
 		if(turn == 1){
-			//			if((mode !=3 || mode !=4 || mode !=5) && cos(distToCP[0].p + headingOffst) > 0){
-			//	RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst) > 3 ? mode += 1 : 0;
-			//}
-		//}
-		//if(mode == 6){
-			//RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst) < -3 ? mode += 1 : 0;
+			count > 200 ? count = 0:0;
+			count++;
+			if((mode == 1 || mode == 2) && cos(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst)) > 0 ){mode = 3;}
+			else if((mode == 1 || mode == 5) && cos(RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst)) < 0 ){mode = 6;}
+			else if(count > 200 && mode == 3 && RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst) > 3){mode = 4;}
+			else if(count > 200 && mode == 6 && RoundRadPosNeg(rpyAngle.z-headingOffstIMU+headingOffst) < -3){mode = 7;}
 		}
 	}
 	else{
