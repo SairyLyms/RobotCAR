@@ -24,15 +24,15 @@
 polVectorFloat3D distToCP[2];
 
 
-#define CC01
+//#define CC01
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 //#define DEBUG
 //#define TechCom											/*テストコース設定*/
 //#define Ground
-//#define Garden
+#define Garden
 //#define HappiTow
-#define Home
+//#define Home
 #ifdef TechCom
 NeoGPS::Location_t cp0(365759506L,1400158539L);
 NeoGPS::Location_t cp1(365760193L,1400160370L);
@@ -106,12 +106,13 @@ void setup()
 	Serial.begin(115200);
 	Serial1.begin(38400);
 	IMU.initialize();
-	IMU.setXAccelOffset(362);
-	IMU.setYAccelOffset(-3714);
-	IMU.setZAccelOffset(628);
-	IMU.setXGyroOffset(109);
-	IMU.setYGyroOffset(-16);
-	IMU.setZGyroOffset(11);
+#ifdef CC01
+	IMU.setXAccelOffset(362);IMU.setYAccelOffset(-3714);IMU.setZAccelOffset(628);
+	IMU.setXGyroOffset(109);IMU.setYGyroOffset(-16);IMU.setZGyroOffset(11);
+#else
+	IMU.setXAccelOffset(27);IMU.setYAccelOffset(-17);IMU.setZAccelOffset(2244);
+	IMU.setXGyroOffset(65);IMU.setYGyroOffset(-29);IMU.setZGyroOffset(33);
+#endif
 	IMU.setDLPFMode(MPU6050_DLPF_BW_20);
 	FStr.attach(3);
 	PowUnit.attach(2,1000,2000);
@@ -348,37 +349,37 @@ void IntegratedChassisControl(void)
 					break;
 	//1:ヨー角キャリブレーション用
 	case 1:
-					puPwm = 110;
+					puPwm = 103;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,0);
 					targetAngleCP = RoundRadPosNeg(distToCP[0].p - headingOffst);
 					break;
   //2:CP0に向かって直進
-	case 2:	puPwm = 130;
+	case 2:	puPwm = 103;
 					relAngle = RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst);
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
 	//3:CP0で左旋回(ヨーレートFB)
-	case 3: puPwm = 110;
+	case 3: puPwm = 103;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,1);
 					targetAngleCP = RoundRadPosNeg(distToCP[1].p - headingOffst + M_PI);
 					break;
 	//3:CP0から脱出(ヨー角FB)
-	case 4: puPwm = 110;
+	case 4: puPwm = 103;
 					relAngle = RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst + M_PI);
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
   //5:CP1に向かって直進
-	case 5: puPwm = 130;
+	case 5: puPwm = 103;
 					relAngle = RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst + M_PI);
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
 	//6:CP1で右旋回(ヨーレートFB)
-	case 6: puPwm = 110;
+	case 6: puPwm = 103;
 					fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,-1);
 					targetAngleCP = RoundRadPosNeg(distToCP[0].p - headingOffst);
 					break;
 	//3:CP1から脱出(ヨー角FB)
-	case 7: puPwm = 110;
+	case 7: puPwm = 103;
 					relAngle = RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst);
 					fStrPwm = StrControlPIDAng(mode,fStrPwm,relAngle,targetAngleCP);
 					break;
