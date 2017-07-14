@@ -31,7 +31,7 @@ polVectorFloat3D distToCP[2];
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 //#define DEBUG
-//#define TechCom											/*ƒeƒXƒgƒR[ƒXİ’è*/
+//#define TechCom											/*ãƒ†ã‚¹ãƒˆã‚³ãƒ¼ã‚¹è¨­å®š*/
 //#define Ground
 #define Garden
 //#define HappiTow
@@ -62,21 +62,21 @@ HMC5883L MAG;
 Madgwick AHRS;
 Servo FStr,PowUnit;
 Scheduler runner;
-/*À•WŒn‚ÍˆÀ•”æ¶‚Ì–{‚É]‚¤(‰EèŒn)*/
+/*åº§æ¨™ç³»ã¯å®‰éƒ¨å…ˆç”Ÿã®æœ¬ã«å¾“ã†(å³æ‰‹ç³»)*/
 VectorFloat rpyAngle;
 VectorFloat rpyRate;
-VectorFloat acc;                                                  /*X,Y,Z‰Á‘¬“x(m/s^2)*/
-float relHeading;							 																		/*CPŠÔ’†Sü‚©‚ç‚Ì‘Š‘ÎŠp“x(Heading:CW+,Yaw:CCW+)*/
-float relHeadingTgt[2];																						/*CP‚Ü‚Å‚ÌŠp“x(Heading:CW+)*/
-float heading, headingDeg;																				/*•ûˆÊ(rad,deg)*/
+VectorFloat acc;                                                  /*X,Y,ZåŠ é€Ÿåº¦(m/s^2)*/
+float relHeading;							 																		/*CPé–“ä¸­å¿ƒç·šã‹ã‚‰ã®ç›¸å¯¾è§’åº¦(Heading:CW+,Yaw:CCW+)*/
+float relHeadingTgt[2];																						/*CPã¾ã§ã®è§’åº¦(Heading:CW+)*/
+float heading, headingDeg;																				/*æ–¹ä½(rad,deg)*/
 float yawRtGPS;
-float headingOffst = cp[1].BearingTo(cp[0]);											/*CPŠÔ‚Ì•ûˆÊ*/
-float gpsSpeedmps;                                               /*GPSâ‘Î‘¬“x(m/s)*/
+float headingOffst = cp[1].BearingTo(cp[0]);											/*CPé–“ã®æ–¹ä½*/
+float gpsSpeedmps;                                               /*GPSçµ¶å¯¾é€Ÿåº¦(m/s)*/
 polVectorFloat3D centerPos;
 uint8_t sats;
-int puPwm = 90;																									/*ƒpƒ[ƒ†ƒjƒbƒg‚ÌPWM*/
-int fStrPwm = 90;                                               /*ƒXƒeƒAƒŠƒ“ƒO‚ÌPWM*/
-float fStrDeg;																									/*‘O—ÖÀ‘ÇŠp*/
+int puPwm = 90;																									/*ãƒ‘ãƒ¯ãƒ¼ãƒ¦ãƒ‹ãƒƒãƒˆã®PWM*/
+int fStrPwm = 90;                                               /*ã‚¹ãƒ†ã‚¢ãƒªãƒ³ã‚°ã®PWM*/
+float fStrDeg;																									/*å‰è¼ªå®Ÿèˆµè§’*/
 
 // ================================================================
 // ===               				Prototype Def.			                ===
@@ -121,9 +121,9 @@ void setup()
 }
 
 /************************************************************************
- * FUNCTION : 10 msüŠúˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : 10 mså‘¨æœŸå‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void Task10ms(void)
 {
@@ -133,9 +133,9 @@ void Task10ms(void)
 }
 
 /************************************************************************
- * FUNCTION : 20 msüŠúˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : 20 mså‘¨æœŸå‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void Task20ms(void)
 {
@@ -143,27 +143,27 @@ void Task20ms(void)
 }
 
 /************************************************************************
- * FUNCTION : 100 msüŠúˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : 100 mså‘¨æœŸå‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void Task100ms(void)
 {
 }
 
 /************************************************************************
- * FUNCTION : 1000 msüŠúˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : 1000 mså‘¨æœŸå‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void Task1000ms(void)
 {
 }
 
 /************************************************************************
- * FUNCTION : GPSXVˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : GPSæ›´æ–°å‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void GPSupdate(void)
 {
@@ -175,8 +175,8 @@ void GPSupdate(void)
 	if(fix.valid.location) {
 		for(int8_t i=0;i<2;i++){
 			distToCP[i].r = fix.location.DistanceKm(cp[i]) * 1000.0f;
-			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //’¼i§Œä—p‚ÌƒŠƒtƒ@ƒŒƒ“ƒX•ûˆÊ
-			distToCP[i].p = fix.location.BearingTo(cp[i]); //ù‰ñŠJn”»’è—p‚Ì•ûˆÊ
+			distToCP[i].t = fix.location.BearingTo(cpAway[i]); //ç›´é€²æ™‚åˆ¶å¾¡ç”¨ã®ãƒªãƒ•ã‚¡ãƒ¬ãƒ³ã‚¹æ–¹ä½
+			distToCP[i].p = fix.location.BearingTo(cp[i]); //æ—‹å›é–‹å§‹åˆ¤å®šç”¨ã®æ–¹ä½
 			}
 			centerPos.r = locCenter.DistanceKm(fix.location) * 1000.0f;
 			centerPos.t = locCenter.BearingTo(fix.location);
@@ -201,9 +201,9 @@ void GPSupdate(void)
 }
 
 /************************************************************************
- * FUNCTION : IMUXVˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : IMUæ›´æ–°å‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void IMUupdate(void)
 {
@@ -236,13 +236,13 @@ void IMUupdate(void)
 	rpyRate.y = gfy * M_PI/180;
 	rpyRate.z = gfz * M_PI/180;
 
-	rpyAngle.x = AHRS.getRoll() * M_PI/180; //ƒ[ƒ‹Šp
-	rpyAngle.y = AHRS.getPitch() * M_PI/180; //ƒsƒbƒ`Šp
-	rpyAngle.z = AHRS.getYaw() * M_PI/180; //ƒˆ[Šp
+	rpyAngle.x = AHRS.getRoll() * M_PI/180; //ãƒ­ãƒ¼ãƒ«è§’
+	rpyAngle.y = AHRS.getPitch() * M_PI/180; //ãƒ”ãƒƒãƒè§’
+	rpyAngle.z = AHRS.getYaw() * M_PI/180; //ãƒ¨ãƒ¼è§’
 
-	acc.x = convertRawAcceleration(aiy + (16384 * sin(rpyAngle.y) * cos(rpyAngle.x))); //d—Í‚Ì‰e‹¿‚ğœŠO‚µ‚½‰Á‘¬“xx
-	acc.y = convertRawAcceleration(-aix - (16384 * cos(rpyAngle.y) * sin(rpyAngle.x))); //d—Í‚Ì‰e‹¿‚ğœŠO‚µ‚½‰Á‘¬“xy
-	acc.z = convertRawAcceleration(aiz - (16384 * cos(rpyAngle.y) * cos(rpyAngle.x))); //d—Í‚Ì‰e‹¿‚ğœŠO‚µ‚½‰Á‘¬“xz
+	acc.x = convertRawAcceleration(aiy + (16384 * sin(rpyAngle.y) * cos(rpyAngle.x))); //é‡åŠ›ã®å½±éŸ¿ã‚’é™¤å¤–ã—ãŸåŠ é€Ÿåº¦x
+	acc.y = convertRawAcceleration(-aix - (16384 * cos(rpyAngle.y) * sin(rpyAngle.x))); //é‡åŠ›ã®å½±éŸ¿ã‚’é™¤å¤–ã—ãŸåŠ é€Ÿåº¦y
+	acc.z = convertRawAcceleration(aiz - (16384 * cos(rpyAngle.y) * cos(rpyAngle.x))); //é‡åŠ›ã®å½±éŸ¿ã‚’é™¤å¤–ã—ãŸåŠ é€Ÿåº¦z
 
 
 #ifdef DEBUG_IMU
@@ -267,9 +267,9 @@ void IMUupdate(void)
 }
 
 /************************************************************************
- * FUNCTION : ƒRƒ“ƒpƒXXVˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : ã‚³ãƒ³ãƒ‘ã‚¹æ›´æ–°å‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
  void MAGupdate(void)
  {
@@ -291,9 +291,9 @@ void IMUupdate(void)
 
 
 /************************************************************************
- * FUNCTION : IMUXVˆ—
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : IMUæ›´æ–°å‡¦ç†
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void Initwait(void)
 {
@@ -306,9 +306,9 @@ void Initwait(void)
 
 
 /************************************************************************
- * FUNCTION : ƒT[ƒ{o—Í(ƒeƒXƒg’†)
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : ã‚µãƒ¼ãƒœå‡ºåŠ›(ãƒ†ã‚¹ãƒˆä¸­)
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void ChassisFinalOutput(int puPwm,int fStrPwm)
 {
@@ -322,9 +322,9 @@ void ChassisFinalOutput(int puPwm,int fStrPwm)
 
 
 /************************************************************************
- * FUNCTION : ƒVƒƒƒV“‡§Œä(ƒeƒXƒg’†)
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : ã‚·ãƒ£ã‚·çµ±åˆåˆ¶å¾¡(ãƒ†ã‚¹ãƒˆä¸­)
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 void IntegratedChassisControl(void)
 {
@@ -347,7 +347,7 @@ void IntegratedChassisControl(void)
 						fStrPwm = (int)(Lookup1D(fStrDeg,fStrDegx,kfStrDeg2fPWM,sizeof(fStrDegx)/sizeof(fStrDegx[0]))+90);
 					}
 					else{
-						fStrPwm = 0;
+						fStrPwm = 90;
 						puPwm = 90;
 					}
 					break;
@@ -355,12 +355,12 @@ void IntegratedChassisControl(void)
 	case '1':
 				if(select == 1){
 					puPwm+= 5;
-					//Serial.print("PuPwm:,"); Serial.println(puPwm);
+					Serial.print("PuPwm:,"); Serial.println(puPwm);
 				}
 				else if(select == 2){
-					fStrDeg+=2;
+					fStrDeg +=2;
 					fStrPwm = (int)(Lookup1D(fStrDeg,fStrDegx,kfStrDeg2fPWM,sizeof(fStrDegx)/sizeof(fStrDegx[0]))+90);
-					//Serial.print("StrDeg:,"); Serial.print(deg);Serial.print("\t");Serial.print("StrPwm:,"); Serial.println(fStrPwm);
+					Serial.print("StrDeg:,"); Serial.print(fStrDeg);Serial.print("\t");Serial.print("StrPwm:,"); Serial.println(fStrPwm);
 				}
 				else{
 				}
@@ -372,9 +372,9 @@ void IntegratedChassisControl(void)
 					//Serial.print("PuPwm:,"); Serial.println(puPwm);
 				}
 				else if(select == 2){
-					fStrDeg-=2;
+					fStrDeg -=2;
 					fStrPwm = (int)(Lookup1D(fStrDeg,fStrDegx,kfStrDeg2fPWM,sizeof(fStrDegx)/sizeof(fStrDegx[0]))+90);
-					//Serial.print("StrDeg:,"); Serial.print(deg);Serial.print("\t");Serial.print("StrPwm:,"); Serial.println(fStrPwm);
+					Serial.print("StrDeg:,"); Serial.print(fStrDeg);Serial.print("\t");Serial.print("StrPwm:,"); Serial.println(fStrPwm);
 				}
 				else{
 				}
@@ -393,10 +393,10 @@ void IntegratedChassisControl(void)
 
 
 /************************************************************************
- * FUNCTION : ó‘ÔŠÇ—
+ * FUNCTION : çŠ¶æ…‹ç®¡ç†
  * INPUT    :
  *
- * OUTPUT   : ó‘Ô’l
+ * OUTPUT   : çŠ¶æ…‹å€¤
  ***********************************************************************/
 int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
@@ -406,14 +406,14 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 }
 
 /************************************************************************
- * FUNCTION : –Ú•Wƒˆ[ƒŒ[ƒg‰‰Z
- * INPUT    : ‚È‚µ
- * OUTPUT   : ‚È‚µ
+ * FUNCTION : ç›®æ¨™ãƒ¨ãƒ¼ãƒ¬ãƒ¼ãƒˆæ¼”ç®—
+ * INPUT    : ãªã—
+ * OUTPUT   : ãªã—
  ***********************************************************************/
 float CalcTargetYawRt(polVectorFloat3D distToCP,float relHeadingTgt,float gpsSpeedmps)
 {
 	float TargetYawRt;
-	TargetYawRt = gpsSpeedmps * sin(relHeadingTgt)/distToCP.r;			/*–{—ˆ‚ÍƒR[ƒX‚É‘Î‚·‚éƒˆ[Šp‚Ì•Î·‚ğ“ü—Í‚·‚×‚«‚¾‚ª•‰‰×íŒ¸‚Ì‚½‚ßrelHeadingTgt‚Å‘ã—p*/
+	TargetYawRt = gpsSpeedmps * sin(relHeadingTgt)/distToCP.r;			/*æœ¬æ¥ã¯ã‚³ãƒ¼ã‚¹ã«å¯¾ã™ã‚‹ãƒ¨ãƒ¼è§’ã®åå·®ã‚’å…¥åŠ›ã™ã¹ãã ãŒè² è·å‰Šæ¸›ã®ãŸã‚relHeadingTgtã§ä»£ç”¨*/
 #if DEBUG
 	Serial.print(",relYaw:,");Serial.print(relHeadingTgt);
 	Serial.print(",distToCP:,"); Serial.print(distToCP.r);
@@ -423,10 +423,10 @@ float CalcTargetYawRt(polVectorFloat3D distToCP,float relHeadingTgt,float gpsSpe
 }
 
 /************************************************************************
- * FUNCTION : ‘€‘Ç§Œäw¦’l‰‰Z(ƒˆ[ƒŒ[ƒgƒtƒB[ƒhƒoƒbƒN)
- * INPUT    : CP‚Ü‚Å‚Ì–Ú•WŠp“xAƒˆ[ƒŒ[ƒgA
- *            ‹­§‘€‘Ç•ûŒüw’è(0:’Êí‘€‘ÇA1:¶ù‰ñA-1:‰Eù‰ñ)
- * OUTPUT   : ‘€‘Ç§Œäw¦’l(ƒT[ƒ{Šp)
+ * FUNCTION : æ“èˆµåˆ¶å¾¡æŒ‡ç¤ºå€¤æ¼”ç®—(ãƒ¨ãƒ¼ãƒ¬ãƒ¼ãƒˆãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯)
+ * INPUT    : CPã¾ã§ã®ç›®æ¨™è§’åº¦ã€ãƒ¨ãƒ¼ãƒ¬ãƒ¼ãƒˆã€
+ *            å¼·åˆ¶æ“èˆµæ–¹å‘æŒ‡å®š(0:é€šå¸¸æ“èˆµã€1:å·¦æ—‹å›ã€-1:å³æ—‹å›)
+ * OUTPUT   : æ“èˆµåˆ¶å¾¡æŒ‡ç¤ºå€¤(ã‚µãƒ¼ãƒœè§’)
  ***********************************************************************/
 float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYawRt)
 {
@@ -466,17 +466,17 @@ float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYa
 }
 
 /************************************************************************
- * FUNCTION : ‘¬“xƒRƒ“ƒgƒ[ƒ‹
+ * FUNCTION : é€Ÿåº¦ã‚³ãƒ³ãƒˆãƒ­ãƒ¼ãƒ«
  * INPUT    :
  *
- * OUTPUT   : ‘€‘Ç§Œäw¦’l(ƒT[ƒ{Šp)
+ * OUTPUT   : æ“èˆµåˆ¶å¾¡æŒ‡ç¤ºå€¤(ã‚µãƒ¼ãƒœè§’)
  ***********************************************************************/
 float SpdControlPID(void)
 {
 }
 
 /************************************************************************
- * FUNCTION : 1Dƒe[ƒuƒ‹ƒ‹ƒbƒNƒAƒbƒvŠÖ”
+ * FUNCTION : 1Dãƒ†ãƒ¼ãƒ–ãƒ«ãƒ«ãƒƒã‚¯ã‚¢ãƒƒãƒ—é–¢æ•°
  * INPUT    :
  * OUTPUT   :
  ***********************************************************************/
@@ -523,7 +523,7 @@ float convertRawGyro(int gRaw)
 	return g;
 }
 
-float RoundRad(float x) //Šp“x‚ğ•\‚·•Ï”‚ğ0`6.28rad(2 * M_PI)‚Ì”ÍˆÍ‚Éû‚ß‚éŠÖ”
+float RoundRad(float x) //è§’åº¦ã‚’è¡¨ã™å¤‰æ•°ã‚’0ï½6.28rad(2 * M_PI)ã®ç¯„å›²ã«åã‚ã‚‹é–¢æ•°
 {
 	if (x >= 0.f) {
 		return fmod(x, 2 * M_PI);
@@ -533,12 +533,12 @@ float RoundRad(float x) //Šp“x‚ğ•\‚·•Ï”‚ğ0`6.28rad(2 * M_PI)‚Ì”ÍˆÍ‚Éû‚ß‚éŠÖ”
 	return x;
 }
 
-float RoundRadPosNeg(float x)//Šp“x‚ğ•\‚·•Ï”‚ğ-3.14`3.14rad(M_PI)‚Ì”ÍˆÍ‚Éû‚ß‚éŠÖ”
+float RoundRadPosNeg(float x)//è§’åº¦ã‚’è¡¨ã™å¤‰æ•°ã‚’-3.14ï½3.14rad(M_PI)ã®ç¯„å›²ã«åã‚ã‚‹é–¢æ•°
 {
     return fmod(x + M_PI, 2 * M_PI) - M_PI;
 }
 
-float RoundDeg(float x) //Šp“x‚ğ•\‚·•Ï”‚ğ0`360deg‚Ì”ÍˆÍ‚Éû‚ß‚éŠÖ”
+float RoundDeg(float x) //è§’åº¦ã‚’è¡¨ã™å¤‰æ•°ã‚’0ï½360degã®ç¯„å›²ã«åã‚ã‚‹é–¢æ•°
 {
 	if (x >= 0.f) {
 		return fmod(x, 360.f);
@@ -572,8 +572,8 @@ float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
 
 void DisplayInfo(void)
 {
-	Serial.print("StrDeg: ");
-	Serial.print(fStrDeg);
+	Serial.print("StrPWM: ");
+	Serial.print(fStrPwm);
 	Serial.print(",");
 	Serial.print("PuPWM: ");
 	Serial.print(puPwm);
