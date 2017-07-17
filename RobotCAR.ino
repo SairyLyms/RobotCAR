@@ -26,7 +26,6 @@
 // ===                       Course Data                        ===
 // ================================================================
 polVectorFloat3D distToCP[2];
-
 //#define CC01
 //#define DEBUG_IMU
 //#define DEBUG_GPS
@@ -358,7 +357,7 @@ void IntegratedChassisControl(void)
 					Serial.print("PuPwm:,"); Serial.println(puPwm);
 				}
 				else if(select == 2){
-					fStrDeg +=2;
+					fStrDeg += 2;
 					fStrPwm = (int)(Lookup1D(fStrDeg,fStrDegx,kfStrDeg2fPWM,sizeof(fStrDegx)/sizeof(fStrDegx[0]))+90);
 					Serial.print("StrDeg:,"); Serial.print(fStrDeg);Serial.print("\t");Serial.print("StrPwm:,"); Serial.println(fStrPwm);
 				}
@@ -372,7 +371,7 @@ void IntegratedChassisControl(void)
 					//Serial.print("PuPwm:,"); Serial.println(puPwm);
 				}
 				else if(select == 2){
-					fStrDeg -=2;
+					fStrDeg -= 2;
 					fStrPwm = (int)(Lookup1D(fStrDeg,fStrDegx,kfStrDeg2fPWM,sizeof(fStrDegx)/sizeof(fStrDegx[0]))+90);
 					Serial.print("StrDeg:,"); Serial.print(fStrDeg);Serial.print("\t");Serial.print("StrPwm:,"); Serial.println(fStrPwm);
 				}
@@ -485,7 +484,7 @@ float SpdControlPID(void)
  	 float buf;
  	 int sign = (value > 0) - (value < 0);
  	 if(tableSize > 2){
- 	 for(int8_t i=0;i<tableSize;i++){
+ 	 for(int i=0;i<tableSize;i++){
  		 if(abs(value) <= tableX[0]){
                  buf =  tableK[0] * tableX[0];
               }
@@ -572,6 +571,9 @@ float LimitValue(float inputValue,float upperLimitValue,float lowerLimitValue)
 
 void DisplayInfo(void)
 {
+	Serial.print("StrDeg: ");
+	Serial.print(fStrDeg);
+	Serial.print(",");
 	Serial.print("StrPWM: ");
 	Serial.print(fStrPwm);
 	Serial.print(",");
