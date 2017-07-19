@@ -64,7 +64,8 @@ Scheduler runner;
 /*座標系は安部先生の本に従う(右手系)*/
 VectorFloat rpyAngle;
 VectorFloat rpyRate;
-VectorFloat acc;                                                  /*X,Y,Z加速度(m/s^2)*/
+VectorFloat acc;
+VectorFloat pos;                                                  /*X,Y,Z加速度(m/s^2)*/
 float relHeading;							 																		/*CP間中心線からの相対角度(Heading:CCW+)*/
 float relHeadingTgt[2];																						/*CPまでの角度(Heading:CCW+)*/
 float heading, headingDeg;																				/*方位(rad,deg)*/
@@ -186,6 +187,8 @@ void GPSupdate(void)
 	if(fix.valid.heading){
 		heading = -fix.heading() * 0.01745329251;
 		heading && headingOffst ? relHeading = RoundRadPosNeg(heading - headingOffst) : 0;
+		pos.x = centerPos.r * cos(relHeading);
+		pos.y = centerPos.r * sin(relHeading);
 		if(heading && mode == 1 && initMode != 2){
 			//ave50が50回演算するまでheadingOffstIMUは0
 			ave50(sin(heading))? headingOffstIMU = atan2(ave50(sin(heading)),ave50(cos(heading))) : headingOffstIMU = 0;
@@ -417,31 +420,12 @@ int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVect
 {
 	static uint16_t count;
 	static float imuYawAngleOffst;
-	if(sats && centerPos.r < 30) {			//コース中央から半径30m内
-		if(mode <= 1 && count < 1000){			//ヨー角初期化モード(10秒直進(ヨーレート0))
-				mode <= 0 ? mode = 1 : 0;
-				if(count == 300){
-					initMode = 1;
-				}
-//				if(count <= 900){
-//					ave50(sin(rpyAngle.z)) ? imuYawAngleOffst = atan2(ave50(sin(rpyAngle.z)),ave50(cos(rpyAngle.z))) : imuYawAngleOffst = 0;
-//				}
-				if(count == 999){
-//					headingOffstIMU -= imuYawAngleOffst;
-					mode = 2;
-				}
-			count++;
-		}
-		else{//初期化完了
-			if(mode >= 2){
-				if(!overCP && cos(RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst)) > 0){mode = 2;}
-				if(mode != 3 && mode != 4 && overCP == 1){mode = 3;}
-				if(mode == 3 && cos(RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst)) < 0){mode = 4;}
-				if(!overCP && cos(RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst)) < 0){mode = 5;}
-				if(mode != 6 && mode != 7 && overCP == 2){mode = 6;}
-				if(mode == 6 && cos(RoundRadPosNeg(rpyAngle.z + headingOffstIMU - headingOffst)) > 0){mode = 7;}
-		}
-	}
+	if(sats && centerPos.r < 20) {			//コース中央から半径20m内
+			if((mode == 1 || mode == 5) && pos.x > 5){mode = 2;}
+			if(mode == 2 && pos.x < 5 && cos(rpyAngle.z < 0)){mode = 3;}
+			if(mode == 3 && pos.x < -5){mode = 4;}
+			if(mode == 4 && pos.x > -5 && cos(rpyAngle.z > 0)){mode = 5;}
+			if(0){mode = 6;}
 	}
 	else{//コース外
 		mode = -1;
