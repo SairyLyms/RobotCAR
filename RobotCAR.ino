@@ -26,7 +26,6 @@
 // ===                       Course Data                        ===
 // ================================================================
 polVectorFloat3D distToCP[2];
-//#define CC01
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 //#define DEBUG
@@ -225,12 +224,6 @@ void IMUupdate(void)
 
 	AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
 
-#if 0
-	rpyAngle.x ? rpyRate.x = CalcRPYRate(rpyAngle.x,AHRS.getRoll() * M_PI/180,sampleTime) : 0;
-	rpyAngle.y ? rpyRate.y = CalcRPYRate(rpyAngle.y,AHRS.getPitch() * M_PI/180,sampleTime) : 0;
-	rpyAngle.z ? rpyRate.z = CalcRPYRate(rpyAngle.z,AHRS.getYaw() * M_PI/180,sampleTime) : 0;
-#endif
-
 	rpyRate.x = gfx * M_PI/180;
 	rpyRate.y = gfy * M_PI/180;
 	rpyRate.z = gfz * M_PI/180;
@@ -312,11 +305,7 @@ void Initwait(void)
 void ChassisFinalOutput(int puPwm,int fStrPwm)
 {
 	PowUnit.write(puPwm);
-#ifdef CC01
 	FStr.write(180-fStrPwm);
-#else
-	FStr.write(fStrPwm);
-#endif
 }
 
 
@@ -381,13 +370,9 @@ void IntegratedChassisControl(void)
 	default:
 	break;
 	}
-	#if 1
-	#ifdef DEBUG
-	//Serial.print(",TgtAngle:,"); Serial.print(targetAngleCP);
-	//Serial.print(",TgtYawRt:,"); Serial.print(targetYawRtCP);Serial.print(",yawRate:,"); Serial.print(rpyRate.z,6); Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
-	//Serial.print(",Mode:,"); Serial.print(mode);Serial.print("StrPWM:,"); Serial.println(fStrPwm);
-	#endif
-	#endif
+	if(sats && centerPos.r < 30){
+		puPwm = 90;
+	}
 }
 
 
@@ -399,79 +384,7 @@ void IntegratedChassisControl(void)
  ***********************************************************************/
 int8_t StateManager(NeoGPS::Location_t cp[],polVectorFloat3D distToCP[], polVectorFloat3D centerPos,float relHeading)
 {
-	static int8_t mode;
 
-	return mode;
-}
-
-/************************************************************************
- * FUNCTION : 目標ヨーレート演算
- * INPUT    : なし
- * OUTPUT   : なし
- ***********************************************************************/
-float CalcTargetYawRt(polVectorFloat3D distToCP,float relHeadingTgt,float gpsSpeedmps)
-{
-	float TargetYawRt;
-	TargetYawRt = gpsSpeedmps * sin(relHeadingTgt)/distToCP.r;			/*本来はコースに対するヨー角の偏差を入力すべきだが負荷削減のためrelHeadingTgtで代用*/
-#if DEBUG
-	Serial.print(",relYaw:,");Serial.print(relHeadingTgt);
-	Serial.print(",distToCP:,"); Serial.print(distToCP.r);
-	Serial.print(",tgtYawRt:,"); Serial.println(TargetYawRt);
-	return TargetYawRt;
-#endif
-}
-
-/************************************************************************
- * FUNCTION : 操舵制御指示値演算(ヨーレートフィードバック)
- * INPUT    : CPまでの目標角度、ヨーレート、
- *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
- * OUTPUT   : 操舵制御指示値(サーボ角)
- ***********************************************************************/
-float StrControlPID(int8_t mode, float value, VectorFloat rpyRate,float targetYawRt)
-{
-	float sampleTime;
-#ifdef CC01
-	float kp = 0.5,ti = 0.1 ,td = 0.25,diff;
-#else
-	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
-#endif
-	static float err,lastyawRate;
-	static int8_t lastMode;
-	if(mode != lastMode){
-		err = 0;
-		lastyawRate = 0;
-	}
-	!value ? value = 90 : 0;
-	sampleTime = T10.getInterval() * 0.001;
-	err  += (targetYawRt - rpyRate.z) * sampleTime;
-	diff = 	(rpyRate.z - lastyawRate) / sampleTime;
-
-  value +=  kp * (err/ti - (rpyRate.z + td * diff));
-
-	value = LimitValue(value,120,60);
-
-	lastyawRate = rpyRate.z;
-	lastMode = mode;
-#if 0
-	#ifdef DEBUG
-	Serial.print("Time,");Serial.print(millis());
-	Serial.print(",err:,"); Serial.print(err);Serial.print(",diff:,"); Serial.print(diff); Serial.print(",TGTYawRt:,"); Serial.print(targetYawRt); Serial.print(",YawRt:,"); Serial.print(rpyRate.z);
-	Serial.print(",value:,"); Serial.println(value);
-	#endif
-#endif
-
-	return value;
-
-}
-
-/************************************************************************
- * FUNCTION : 速度コントロール
- * INPUT    :
- *
- * OUTPUT   : 操舵制御指示値(サーボ角)
- ***********************************************************************/
-float SpdControlPID(void)
-{
 }
 
 /************************************************************************
@@ -594,7 +507,6 @@ void DisplayInfo(void)
 	Serial.print(",");
 	Serial.print("Speed:");
 	Serial.print(gpsSpeedmps);
-	Serial.print(",");
 	Serial.println(",");
 }
 
