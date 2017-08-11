@@ -1,0 +1,6 @@
+{
+    "board": "arduino:avr:mega",
+    "configuration": "cpu=atmega2560",
+    "port": "/dev/cu.RobotCAR-CC01-DevB",
+    "sketch": "RobotCAR.ino"
+}
