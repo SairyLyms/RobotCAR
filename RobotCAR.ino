@@ -379,8 +379,8 @@ void IntegratedChassisControl(void)
 	switch (mode) {
 	//0:デバッグ用
 	case 0:		//fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
-				ClothoidControl();
 				puPwm = 110;
+				ClothoidControl();
 				break;
 	//1:ヨー角キャリブレーション用
 	case 1:		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
@@ -423,13 +423,19 @@ void ClothoidControl(void)
 	double yawRt;
 	float l = fix.location.DistanceKm(cp[1][1]) * 1000.0f, psi = -fix.location.BearingTo(cp[1][1]);
 	if(!controlMode){
-		CalcClothoidCurvatureRate(l,psi,0,0,&cvRate,&cvOffset,&odoEnd,5);
-		Serial.print("done!!:,");Serial.println(cvRate);Serial.print(",");Serial.println(cvOffset);Serial.print(",");Serial.println(odoEnd);
-		controlMode = 1;
+		if(EnableTimerms(15000)){
+			CalcClothoidCurvatureRate(l,psi,0,0,&cvRate,&cvOffset,&odoEnd,5);
+			Serial.print("Calc done!!:,");Serial.println(cvRate);Serial.print(",");Serial.println(cvOffset);Serial.print(",");Serial.println(odoEnd);
+			controlMode = 1;
+		}
+		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
 	}
-	odo += gpsSpeedmps * (sampleTimems * 2) * 0.001;;
-	yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-	fStrPwm = StrControlPID(fStrPwm,rpyRate.z,yawRt);
+	if(controlMode){
+		odo += gpsSpeedmps * (sampleTimems * 2) * 0.001;;
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,yawRt);
+		if(odo>odoEnd){puPwm = 90;Serial.print("Control done!!:,");}
+	}
 	Serial.print("l:,");Serial.print(l);Serial.print("psi:,");Serial.print(psi);Serial.print("odo:,");Serial.print(odo);
 	Serial.print("TgtYaw:,");Serial.println(yawRt);
 }
