@@ -23,8 +23,6 @@
 /************************************************************************/
 /*	Private Constant Definition											*/
 /************************************************************************/
-float tPConst[3][3] = {{10,-5,0},{10,5,3.14},{0,0,3.603}};
-float tPNonConst[3][3] ={{6.47,-3.53,-0.67},{0,0,0},{0,0,3.14}};
 int8_t n = 5;
 
 // ================================================================
@@ -33,22 +31,18 @@ int8_t n = 5;
 polVectorFloat3D distToCP[2];
 
 
-#define CC01
 //#define DEBUG_IMU
 //#define DEBUG_GPS
 //#define DEBUG
 //#define TechCom											/*テストコース設定*/
-//#define Ground
+#define Ground
 //#define Garden
-#define HappiTow
+//#define HappiTow
 //#define Home
 #ifdef TechCom
 NeoGPS::Location_t cp1(365759506L,1400158539L);
 NeoGPS::Location_t cp2(365760193L,1400160370L);
 #elif defined Garden
-NeoGPS::Location_t cp1(365780240L,1400148780L);
-NeoGPS::Location_t cp2(365780920L,1400151410L);
-#elif defined Ground
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
@@ -57,15 +51,18 @@ NeoGPS::Location_t cp2(365679436L,1399957780L);
 //NeoGPS::Location_t cp0(365680389L,1399960780L);
 //NeoGPS::Location_t cp1(365679436L,1399957780L);
 #elif defined Home
-NeoGPS::Location_t cp1(385058174L,1404037933L);
-NeoGPS::Location_t cp2(385056915L,1404036254L);
+NeoGPS::Location_t cp1(385071520L,1403969840L);
+NeoGPS::Location_t cp2(385071540L,1403970570L);
+#elif defined Ground
+NeoGPS::Location_t cp1(385156170L,1403968200L);
+NeoGPS::Location_t cp2(385155440L,1403966060L);
 #endif
 NeoGPS::Location_t cp[3][3];
 //NeoGPS::Location_t locCenter((long)(5*(0.1 * cp[0].lat() + 0.1 * cp[1].lat())),(long)(5*(0.1 * cp[0].lon()+ 0.1 * cp[1].lon())));
 
 NeoGPS::Location_t relPos2D;
-static NMEAGPS  gps;
-static gps_fix  fix;
+volatile NMEAGPS  gps;
+volatile gps_fix  fix;
 MPU6050 IMU;
 HMC5883L mag;
 Madgwick AHRS;
@@ -75,20 +72,20 @@ Scheduler runner;
 VectorFloat rpyAngle;
 VectorFloat rpyRate;
 VectorFloat acc;
-float rfromCenter;
+volatile float rfromCenter;
+volatile float heading;											/*方位(rad,deg)*/
+volatile float gpsSpeedmps;										/*GPS絶対速度(m/s)*/
 double pos[2][3] = {{0,0,0},{0,0,0}};
 float directioncp;
-float relHeading;							 						/*CP間中心線からの相対角度(Heading:CCW+)*/
+float relHeading;							 					/*CP間中心線からの相対角度(Heading:CCW+)*/
 float relYawAngle;												/*CPまでの角度(Heading:CCW+)*/
-float heading, headingDeg;											/*方位(rad,deg)*/
 float headingOffstIMU;
-float gpsSpeedmps;													/*GPS絶対速度(m/s)*/
 polVectorFloat3D centerPos;
 uint8_t sats;
 uint8_t overCP;
 int puPwm = 90;														/*パワーユニットのPWM*/
 int fStrPwm = 90;													/*ステアリングのPWM*/
-uint8_t sampleTimems = 20;
+uint8_t sampleTimems = 10;
 int8_t mode,imuCalibMode;
 // ================================================================
 // ===               				Prototype Def.			                ===
@@ -100,10 +97,9 @@ void Task10(void);
 // ================================================================
 // ===               						Tasks						                ===
 // ================================================================
-//Task T1(sampleTimems, TASK_FOREVER, &Task1, &runner,true);
+Task T1(sampleTimems, TASK_FOREVER, &Task1, &runner,true);
 Task T2(sampleTimems * 2, TASK_FOREVER, &Task2, &runner,true);
-//Task T5(sampleTimems * 5, TASK_FOREVER, &Task5, &runner,true);
-//Task T10(sampleTimems * 10, TASK_FOREVER, &Task10, &runner,true);
+Task T10(sampleTimems * 10, TASK_FOREVER, &Task10, &runner,true);
 // ================================================================
 // ===                     Course setup		                    ===
 // ================================================================
@@ -137,18 +133,15 @@ void setup()
 	IMU.setSleepEnabled(false);
 	IMU.initialize();
 	mag.initialize();
-#ifdef CC01
-	IMU.setXAccelOffset(326);IMU.setYAccelOffset(-3712);IMU.setZAccelOffset(620);
-	IMU.setXGyroOffset(108);IMU.setYGyroOffset(-19);IMU.setZGyroOffset(13);
-#else
-	IMU.setXAccelOffset(27);IMU.setYAccelOffset(-17);IMU.setZAccelOffset(2244);
-	IMU.setXGyroOffset(65);IMU.setYGyroOffset(-29);IMU.setZGyroOffset(33);
-#endif
-//	IMU.setDLPFMode(MPU6050_DLPF_BW_20);
-	FStr.attach(3);
-	PowUnit.attach(2,1000,2000);
+
+	IMU.setXAccelOffset(451);IMU.setYAccelOffset(-3769);IMU.setZAccelOffset(634);
+	IMU.setXGyroOffset(105);IMU.setYGyroOffset(-21);IMU.setZGyroOffset(16);
+
+	FStr.attach(9,1000,2000);
+	PowUnit.attach(8,1000,2000);
+
 	Serial.flush();
-	SetWaypoint(5.0); //旋回半径5m
+	SetWaypoint(5.0); //旋回半径設定
 	runner.startNow();
 	Initwait();
 }
@@ -160,7 +153,8 @@ void setup()
  ***********************************************************************/
 void Task1(void)
 {
-
+	IMUupdate();
+	IntegratedChassisControl();
 }
 
 /************************************************************************
@@ -170,32 +164,17 @@ void Task1(void)
  ***********************************************************************/
 void Task2(void)
 {
-	//条件 : GPS情報更新していること
-	if(fix.valid.speed && fix.valid.satellites && fix.valid.location && fix.valid.heading){
-	IMUupdate();
-	IntegratedChassisControl();
 	ChassisFinalOutput(puPwm,fStrPwm);
-	}
 }
 
 /************************************************************************
- * FUNCTION : 5周期処理
- * INPUT    : なし
- * OUTPUT   : なし
- ***********************************************************************/
-void Task5(void)
-{
-	//Serial.print(GPS.course.deg());
-}
-
-/************************************************************************
- * FUNCTION : 1000 ms周期処理
+ * FUNCTION : 10周期処理
  * INPUT    : なし
  * OUTPUT   : なし
  ***********************************************************************/
 void Task10(void)
 {
-	//Serial.println(millis());
+	GPSupdate();
 }
 
 /************************************************************************
@@ -205,24 +184,26 @@ void Task10(void)
  ***********************************************************************/
 void GPSupdate(void)
 {
-	fix = gps.read();
-	if(fix.valid.speed){
-		gpsSpeedmps = fix.speed() * 0.514444;
-		//Serial.print(",Speed:,"); Serial.print(gpsSpeedmps);
-	}
-	if(fix.valid.satellites){sats = fix.satellites;}
-	if(fix.valid.heading){
-		heading = -fix.heading() * 0.01745329251;
-		heading ? relHeading = Pi2pi(heading + directioncp) : 0;
-		//Serial.print(",Heading:,"); Serial.print(heading); Serial.print(",relHeading:,");Serial.print(relHeading);Serial.println("");		
-		}
-	if(fix.valid.location) {
-		rfromCenter = fix.location.DistanceKm(cp[0][0]) * 1000.0f;
+	if(gpsSpeedmps){gpsSpeedmps = fix.speed() * 0.514444;}
+	if(heading){relHeading = Pi2pi(heading + directioncp);}
+	if(rfromCenter) {
 		pos[0][0] = rfromCenter * cos(-(fix.location.BearingTo(cp[0][0]) - directioncp)) * -1;
 		pos[0][1] = rfromCenter * sin(-(fix.location.BearingTo(cp[0][0]) - directioncp)) * -1;
-		//Serial.print("PosX:,"); Serial.print(pos[0][0]); Serial.print(",PosY:,"); Serial.print(pos[0][1]);Serial.print("");
-		}
+	}
 }
+
+
+/************************************************************************
+ * FUNCTION : GPS_Fix後更新処理
+ * INPUT    : なし
+ * OUTPUT   : なし
+ ***********************************************************************/
+ void GPSFIX(void)
+ {
+	 if(fix.valid.speed){gpsSpeedmps = fix.speed() * 0.514444;}
+	 if(fix.valid.heading){heading = -fix.heading() * 0.01745329251;}
+	 if(fix.valid.location) {rfromCenter = fix.location.DistanceKm(cp[0][0]) * 1000.0f;}
+ }
 
 float ave(float in,int n)//n回平均計算(n回計算後に初めて出力)
 {
@@ -360,11 +341,7 @@ void Initwait(void)
 void ChassisFinalOutput(int puPwm,int fStrPwm)
 {
 	PowUnit.write(puPwm);
-#ifdef CC01
-	FStr.write(180-fStrPwm);
-#else
-	FStr.write(fStrPwm);
-#endif
+	FStr.write(180 - fStrPwm);
 }
 
 
@@ -378,16 +355,19 @@ void IntegratedChassisControl(void)
 	//StateManager();
 	switch (mode) {
 	//0:デバッグ用
-	case 0:		//fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
-				puPwm = 110;
-				ClothoidControl();
+	case 0:		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,1.0);
+				puPwm = LimitValue(SpdControlPID(puPwm,gpsSpeedmps,1.0),100,80);
+				Serial.print(millis());Serial.print(",");Serial.print(gpsSpeedmps);Serial.print(",");Serial.println(puPwm);
+				//ClothoidControl();
 				break;
 	//1:ヨー角キャリブレーション用
-	case 1:		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
-				puPwm = 110;
+	case 1:		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,0);
+				puPwm = 107;
 				break;
-	case 2:		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
+	case 2:		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,0);
 				puPwm = 90;
+				break;
+	case 3:		ClothoidControl();
 				break;
 
 	default:	puPwm = 90;
@@ -421,23 +401,75 @@ void ClothoidControl(void)
 	static int controlMode = 0;
 	static double cvRate,cvOffset,odoEnd,odo;
 	double yawRt;
-	float l = fix.location.DistanceKm(cp[1][1]) * 1000.0f, psi = -fix.location.BearingTo(cp[1][1]);
-	if(!controlMode){
-		if(EnableTimerms(15000)){
-			CalcClothoidCurvatureRate(l,psi,0,0,&cvRate,&cvOffset,&odoEnd,5);
-			Serial.print("Calc done!!:,");Serial.println(cvRate);Serial.print(",");Serial.println(cvOffset);Serial.print(",");Serial.println(odoEnd);
-			controlMode = 1;
-		}
-		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,0);
+	Serial.print("Current Mode :");Serial.println(controlMode);
+	if(controlMode==0){
+		puPwm = 110;//とりあえずここからモータ動かす
+		float l = fix.location.DistanceKm(cp[1][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][1]) - directioncp);//cp1右側へ
+		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
+		controlMode = 1;
 	}
-	if(controlMode){
-		odo += gpsSpeedmps * (sampleTimems * 2) * 0.001;;
+	else if(controlMode==1){//初回cp1旋回開始
+		odo += gpsSpeedmps * sampleTimems * 0.001;
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		fStrPwm = StrControlPID(fStrPwm,rpyRate.z,yawRt);
-		if(odo>odoEnd){puPwm = 90;Serial.print("Control done!!:,");}
+		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
+		if(odo>odoEnd){
+			Serial.println("Control1 done!!:,");//制御終了して次の制御へ
+			float l = fix.location.DistanceKm(cp[1][2]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][2]) - directioncp);//cp1反対側へ定常円
+			CalcClothoidCurvatureRate(l,psi,relYawAngle,M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp1反対側へ定常円			
+			odo = 0;
+			controlMode = 2;
+		}
 	}
-	Serial.print("l:,");Serial.print(l);Serial.print("psi:,");Serial.print(psi);Serial.print("odo:,");Serial.print(odo);
-	Serial.print("TgtYaw:,");Serial.println(yawRt);
+	else if(controlMode==2){//cp1定常円
+		odo += gpsSpeedmps * sampleTimems * 0.001;
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
+		if(odo>odoEnd){
+			Serial.println("Control2 done!!:,");//制御終了して次の制御へ
+			float l = fix.location.DistanceKm(cp[2][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[2][1]) - directioncp + M_PI);//cp2へ
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ						
+			odo = 0;
+			controlMode = 3;
+			puPwm = 120;//直線区間のため加速			
+		}
+	}
+	else if(controlMode==3){//cp2へ
+		odo += gpsSpeedmps * sampleTimems * 0.001;
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
+		if(odo>odoEnd){
+			Serial.println("Control3 done!!:,");//制御終了して次の制御へ
+			float l = fix.location.DistanceKm(cp[2][2]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[2][2]) - directioncp + M_PI);//cp2反対側へ定常円
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),-3.14,&cvRate,&cvOffset,&odoEnd,5);//cp2反対側へ定常円									
+			odo = 0;
+			controlMode = 4;
+		}
+	}
+	else if(controlMode==4){//cp2定常円
+		odo += gpsSpeedmps * sampleTimems * 0.001;
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
+		if(odo>odoEnd){
+			Serial.println("Control4 done!!:,");//制御終了して次の制御へ
+			float l = fix.location.DistanceKm(cp[1][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][1]) - directioncp);//cp1右側へ
+			CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);//cp1右側へ
+			odo = 0;
+			controlMode = 5;
+		}
+	}
+	else if(controlMode==5){//cp1へ
+		odo += gpsSpeedmps * sampleTimems * 0.001;
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
+		if(odo>odoEnd){
+			Serial.println("Control5 done!!:,");//制御終了して次の制御へ
+			float l = fix.location.DistanceKm(cp[1][2]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][2]) - directioncp);//cp1反対側へ定常円
+			CalcClothoidCurvatureRate(l,psi,relYawAngle,M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp1反対側へ定常円	
+			odo = 0;
+			controlMode = 2;
+		}
+	}
+	Serial.print("odo:,");Serial.print(odo);Serial.print("TgtYaw:,");Serial.println(yawRt);
 }
 
 /************************************************************************
@@ -448,23 +480,24 @@ void ClothoidControl(void)
  ***********************************************************************/
 int8_t StateManager()
 {
-	if(sats && rfromCenter < 30) {			//コース中央から半径20m内
+	static unsigned long startTime = 0;
+	if(rfromCenter < 50) {			//コース中央から半径20m内
 		if(mode <= 0){
 			mode = 1;
 		}
 		else if(mode == 1 && heading){
-			if(!imuCalibMode && EnableTimerms(20000)){//IMU補正開始 //20秒必要
+			if(!imuCalibMode){startTime = millis();imuCalibMode = 1;}	//助走モード開始(1)
+			else if(imuCalibMode == 1 && (millis() - startTime) > 10000){
 				Serial.println("Calib Start");
-				imuCalibMode = 1;
+				imuCalibMode = 2;										//学習開始(2)
 			}
-			else if(imuCalibMode == 1){
+			else if(imuCalibMode == 2){
 				headingOffstIMU = -aveAngle(rpyAngle.z,50);
-				//Serial.print(rpyAngle.z);Serial.print(",");Serial.print(heading);Serial.print(",");Serial.println(relHeading);
 				if(headingOffstIMU){
 					headingOffstIMU += relHeading; 
-					imuCalibMode = 2;
+					imuCalibMode = 3;
 					mode = 2;
-					Serial.println("Calib Done");
+					Serial.println("Calib Done");						//学習完了(3)
 				}
 			}
 		}
@@ -473,14 +506,14 @@ int8_t StateManager()
 			//Serial.print("Heading,");Serial.print(heading);Serial.print("RelHead,");Serial.print(relHeading);Serial.print("RelYaw:,"); Serial.println(relYawAngle);			
 			while(Serial.available()){
 				switch(Serial.read()){
-					case '0'	: mode = 1;break; //再度IMU補正
+					case '0'	: mode = 1;imuCalibMode = 0;break; //再度IMU補正
 					case '1'	: mode = 3;break; //走行開始
 					default		: break;	
 				}
 			}
 		}
 		else if(mode == 3){
-			Serial.println("Now Mode 3");
+			//Serial.println("Now Mode 3");
 		}
 	}
 	else{//コース外
@@ -499,17 +532,19 @@ int8_t StateManager()
  *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
  * OUTPUT   : 操舵制御指示値(サーボ角)
  ***********************************************************************/
-float StrControlPID(float value, float yawRate,float targetYawRt)
+float StrControlPID(int mode, float value, float yawRate,float targetYawRt)
 {
 	static unsigned long lasttimems;
 	float sampleTime = (millis()-lasttimems) * 0.001;
-
-#ifdef CC01
-	float kp = 0.6 * 3,ti = 0.5 * 0.42 ,td = 0.125 * 0.42,diff;
-#else
 	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
-#endif
-	static float err,lastyawRate;	
+	static float err,lastyawRate;
+	static int lastMode;
+
+	if(mode != lastMode){
+		err = 0;
+		lastyawRate=0;
+	}
+
 	!value ? value = 90 : 0;
 	err  += (targetYawRt - yawRate) * sampleTime;
 	diff = 	(yawRate - lastyawRate) / sampleTime;
@@ -520,6 +555,7 @@ float StrControlPID(float value, float yawRate,float targetYawRt)
 
 	lasttimems = millis();
 	lastyawRate = yawRate;
+	lastMode = mode;
 
 	//Serial.print("Time,");Serial.print(millis());
 	//Serial.print(",err:,"); Serial.print(err);Serial.print(",diff:,"); Serial.print(diff); Serial.print(",TGTYawRt:,"); Serial.print(targetYawRt); Serial.print(",YawRt:,"); Serial.print(rpyRate.z);
@@ -538,12 +574,8 @@ float StrControlPID(float value, float yawRate,float targetYawRt)
  float StrControlPIDAng(int8_t mode, float value, float yawAngle,float targetYawAngle)
  {
 	float sampleTime = sampleTimems * 0.001;
- #ifdef CC01
-  float kp = 180,ti = 0.5 * 0.42 ,td = 0.125 * 0.42,diff;
- #else
- 	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
- #endif
- 	static float err[3],lastyawAngle,lastvalue;
+	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
+	static float err[3],lastyawAngle,lastvalue;
  	static int8_t lastMode;
 
  	if(mode != lastMode){
@@ -579,8 +611,26 @@ float StrControlPID(float value, float yawRate,float targetYawRt)
  *
  * OUTPUT   : 操舵制御指示値(サーボ角)
  ***********************************************************************/
-float SpdControlPID(void)
+int SpdControlPID(float value,float currentSpeed,float targetSpeed)
 {
+	static unsigned long lasttimems;
+	float sampleTime = (millis()-lasttimems) * 0.001;
+	float kp = 1,ti = 1000 ,td = 0,diff,buf;
+	static float err,lastSpeed;
+
+	buf = value - 90;
+
+	err  += (targetSpeed - currentSpeed) * sampleTime;
+	diff = 	(currentSpeed - lastSpeed) / sampleTime;
+
+  	buf +=  kp * (err/ti - (currentSpeed + td * diff));
+
+	buf = LimitValue(buf,-90,90);
+
+	lasttimems = millis();
+	lastSpeed = currentSpeed;
+
+	return (int)(buf + 90);
 }
 
 /************************************************************************
@@ -750,21 +800,6 @@ double odometry(double v,int mode)
     lastTime = millis();
 }
 
-/************************************************************************
- * FUNCTION : イネーブルタイマ(ms)
- * INPUT    : なし
- * OUTPUT   : なし
- ***********************************************************************/
- int EnableTimerms(unsigned long timerTime)
- {
-	 static unsigned long timeFirstCall;
-	 if(!timeFirstCall){timeFirstCall = millis();}
-	 if((millis() - timeFirstCall) > timerTime){
-		timeFirstCall = 0;
-		return 1;
-	}
-	 else{return 0;}
- }
 
 
 float convertRawAcceleration(int aRaw)
@@ -799,13 +834,8 @@ float RoundRad(float x) //角度を表す変数を0～6.28rad(2 * M_PI)の範囲
 
 float Pi2pi(float angle)
 {
-    if (angle >= M_PI) {
-            angle -= M_PI * 2;
-    }
-    else if (angle < -M_PI){
-            angle += M_PI * 2;
-    }
-    else;
+    while(angle >= M_PI) {angle -= M_PI * 2;}
+    while(angle < -M_PI){angle += M_PI * 2;}
     return angle;
 }
 
@@ -826,6 +856,7 @@ void loop()
 
 void serialEvent1(){
 	while (gps.available(Serial1)) {
-		GPSupdate();
+		fix = gps.read();
 	}
+	GPSFIX();
 }
