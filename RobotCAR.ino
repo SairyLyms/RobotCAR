@@ -46,8 +46,8 @@ NeoGPS::Location_t cp2(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680690L,1399957580L);
-NeoGPS::Location_t cp2(365679700L,1399957730L);
+NeoGPS::Location_t cp2(365680690L,1399957580L);
+NeoGPS::Location_t cp1(365679700L,1399957730L);
 //NeoGPS::Location_t cp0(365680389L,1399960780L);
 //NeoGPS::Location_t cp1(365679436L,1399957780L);
 #elif defined Home
@@ -354,19 +354,22 @@ void IntegratedChassisControl(void)
 {
 	StateManager();
 	switch (mode) {
-	//0:デバッグ用
-	case 0:		fStrPwm = StrControlPIDnew(rpyRate.z,0.0);
+	case 0:		fStrPwm = StrControlPIDnew(rpyRate.z,0.0);	
 				puPwm = 90;
 				//puPwm = LimitValue(SpdControlPID(gpsSpeedmps,1.0),120,90);
 				break;
 	//1:ヨー角キャリブレーション用
-	case 1:		fStrPwm = StrControlPIDnew(rpyRate.z,0.0);
+	case 1:		fStrPwm = StrControlPIDnew(rpyRate.z,0.0);	
 				puPwm = 107;
 				break;
-	case 2:		fStrPwm = StrControlPIDnew(rpyRate.z,0.0);
+	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		ClothoidControl();
+	case 3:		puPwm = 107;//SpdControlPID(gpsSpeedmps,2.0);
+				ClothoidControl();
+				break;
+	case 0xf:	puPwm = 90;
+				fStrPwm = StrControlPIDnew(rpyRate.z,0.0);
 				break;
 
 	default:	puPwm = 90;
@@ -402,7 +405,6 @@ void ClothoidControl(void)
 	double yawRt;
 	Serial.print("Current Mode :");Serial.println(controlMode);
 	if(controlMode==0){
-		puPwm = 110;//とりあえずここからモータ動かす
 		float l = fix.location.DistanceKm(cp[1][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][1]) - directioncp);//cp1右側へ
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
 		controlMode = 1;
@@ -410,7 +412,6 @@ void ClothoidControl(void)
 	else if(controlMode==1){//初回cp1旋回開始
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		//fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
 		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);
 		if(odo>odoEnd){
 			Serial.println("Control1 done!!:,");//制御終了して次の制御へ
@@ -423,11 +424,10 @@ void ClothoidControl(void)
 	else if(controlMode==2){//cp1定常円
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		//fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
-		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);		
+		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);
 		if(odo>odoEnd){
 			Serial.println("Control2 done!!:,");//制御終了して次の制御へ
-			float l = fix.location.DistanceKm(cp[2][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[2][1]) - directioncp + M_PI);//cp2へ
+			float l = fix.location.DistanceKm(cp[2][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[2][1]) - directioncp - M_PI);//cp2へ
 			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ						
 			odo = 0;
 			controlMode = 3;
@@ -436,11 +436,10 @@ void ClothoidControl(void)
 	else if(controlMode==3){//cp2へ
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		//fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
-		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);		
+		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);
 		if(odo>odoEnd){
 			Serial.println("Control3 done!!:,");//制御終了して次の制御へ
-			float l = fix.location.DistanceKm(cp[2][2]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[2][2]) - directioncp + M_PI);//cp2反対側へ定常円
+			float l = fix.location.DistanceKm(cp[2][2]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[2][2]) - directioncp - M_PI);//cp2反対側へ定常円
 			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),-3.14,&cvRate,&cvOffset,&odoEnd,5);//cp2反対側へ定常円									
 			odo = 0;
 			controlMode = 4;
@@ -449,9 +448,7 @@ void ClothoidControl(void)
 	else if(controlMode==4){//cp2定常円
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		//fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
 		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);
-		
 		if(odo>odoEnd){
 			Serial.println("Control4 done!!:,");//制御終了して次の制御へ
 			float l = fix.location.DistanceKm(cp[1][1]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][1]) - directioncp);//cp1右側へ
@@ -463,8 +460,7 @@ void ClothoidControl(void)
 	else if(controlMode==5){//cp1へ
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		//fStrPwm = StrControlPID(mode,fStrPwm,rpyRate.z,yawRt);
-		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);		
+		fStrPwm  = StrControlPIDnew(rpyRate.z,yawRt);
 		if(odo>odoEnd){
 			Serial.println("Control5 done!!:,");//制御終了して次の制御へ
 			float l = fix.location.DistanceKm(cp[1][2]) * 1000.0f, psi = -Pi2pi(fix.location.BearingTo(cp[1][2]) - directioncp);//cp1反対側へ定常円
@@ -487,7 +483,14 @@ int8_t StateManager()
 	static unsigned long startTime = 0;
 	if(rfromCenter < 20) {			//コース中央から半径20m内
 		if(mode <= 0){
-			mode = 1;
+			Serial.println("1:Start,d:debug");
+			while(Serial.available()){
+				switch(Serial.read()){
+					case '1'	: mode = 1;break; //再度IMU補正
+					case 'd'	: mode = 0xf;break; //走行開始
+					default		: break;	
+				}
+			}
 		}
 		else if(mode == 1 && heading){
 			if(!imuCalibMode){startTime = millis();imuCalibMode = 1;}	//助走モード開始(1)
@@ -586,7 +589,7 @@ float StrControlPID(int mode, float value, float yawRate,float targetYawRt)
 	output = KP * (error + integral / TI + TD * derivative) + bias;
 
 	error_prior = error;
-
+	
 	return output;
  }
 
@@ -598,18 +601,20 @@ float StrControlPID(int mode, float value, float yawRate,float targetYawRt)
  ***********************************************************************/
 float SpdControlPID(float currentSpeed,float targetSpeed)
 {
-	float KP = 20,KI = 0,KD = 0,bias = 90;
+	float KP = 8,TI = 0.5,TD = 0.125,bias = 90;
 	static float error_prior = 0,integral = 0;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
 	error = targetSpeed - currentSpeed;
 	integral += (error * sampleTime);
 	derivative = (error - error_prior)/sampleTime;
-	output = KP * error + KI * integral + KD * derivative + bias;
-
+	output = KP * (error + integral / TI + TD * derivative) + bias;
+	Serial.print("outputraw:");Serial.println(output);
+	output = LimitValue(output,140,80);
 	error_prior = error;
 	Serial.print("Time:");Serial.print(millis());Serial.print("Speed:");Serial.print(gpsSpeedmps);
 	Serial.print("error:");Serial.print(error);Serial.print("output:");Serial.println(output);
+
 	return output;
 }
 
