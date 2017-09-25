@@ -24,8 +24,8 @@
 /*	Private Constant Definition											*/
 /************************************************************************/
 int8_t n = 5;
-float lengthCenterToWaypoint = 10;
-float r = 5.0;
+float lengthCenterToWaypoint = 7;
+float r = 3.0;
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
@@ -44,8 +44,8 @@ NeoGPS::Location_t cp2(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680270L,1399954370L);
-NeoGPS::Location_t cp2(365680120L,1399957270L);
+NeoGPS::Location_t cp1(365680690L,1399958340L);
+NeoGPS::Location_t cp2(365679580L,1399958340L);
 //NeoGPS::Location_t cp0(365680389L,1399960780L);
 //NeoGPS::Location_t cp1(365679436L,1399957780L);
 #elif defined Home
@@ -311,7 +311,7 @@ void IntegratedChassisControl(void)
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = SpdControlPID(gpsSpeedmps,3.5);
+	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.0);
 				ClothoidControl();
 				break;
 	case 0xf:	puPwm = SpdControlPID(gpsSpeedmps,2.0);
@@ -359,8 +359,10 @@ void ClothoidControl(void)
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
 			Serial.println("Control2 done!!:,");//制御終了して次の制御へ
-			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
-			CalcClothoidCurvatureRate(l,Pi2pi(psi-M_PI),Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp0へ						
+			//GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
+			GetLen(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l);
+			GetPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,-r,&psi);
+			CalcClothoidCurvatureRate(l,Pi2pi(psi-M_PI),Pi2pi(relYawAngle-M_PI),Pi2pi(psi-M_PI),&cvRate,&cvOffset,&odoEnd,5);//cp0へ						
 			odo = 0;
 			controlMode = 3;
 		}
@@ -395,8 +397,10 @@ void ClothoidControl(void)
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
 			Serial.println("Control5 done!!:,");//制御終了して次の制御へ
-			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
-			CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
+			//GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
+			GetLen(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l);
+			GetPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&psi);
+			CalcClothoidCurvatureRate(l,psi,relYawAngle,psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
 			odo = 0;
 			controlMode = 6;
 		}
@@ -526,12 +530,21 @@ float SpdControlPID(float currentSpeed,float targetSpeed)
  * INPUT    :
  * OUTPUT   :
  ***********************************************************************/
- void GetLenAndPsi(float x0, float y0, float x1, float y1,float *len, float *psi)
+ void GetLen(float x0, float y0, float x1, float y1,float *len)
  {
 	 *len = sqrt((x1-x0)*(x1-x0) + (y1-y0)*(y1-y0));
-	 *psi = atan2f((y1-y0),(x1-x0));
  }
-
+ void GetPsi(float x0, float y0, float x1, float y1,float *psi)
+{
+	*psi = atan2f((y1-y0),(x1-x0));
+}
+void GetLenAndPsi(float x0, float y0, float x1, float y1,float *len, float *psi)
+{
+	GetLen(x0,y0,x1,y1,len);
+	GetPsi(x0,y0,x1,y1,psi);
+	//*len = sqrt((x1-x0)*(x1-x0) + (y1-y0)*(y1-y0));
+	//*psi = atan2f((y1-y0),(x1-x0));
+}
 /************************************************************************
  * FUNCTION : クロソイド曲線用関数群
  * INPUT    :
