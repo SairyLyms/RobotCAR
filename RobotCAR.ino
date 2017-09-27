@@ -44,8 +44,8 @@ NeoGPS::Location_t cp2(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680690L,1399958340L);
-NeoGPS::Location_t cp2(365679580L,1399958340L);
+NeoGPS::Location_t cp1(365680610L,1399957880L);
+NeoGPS::Location_t cp2(365679700L,1399957880L);
 //NeoGPS::Location_t cp0(365680389L,1399960780L);
 //NeoGPS::Location_t cp1(365679436L,1399957780L);
 #elif defined Home
@@ -165,7 +165,7 @@ void Task2(void)
 		rfromCenter = fix.location.DistanceKm(locCenter) * 1000.0f;
 		bearfromCenter = -Pi2pi(locCenter.BearingTo(current) - directioncp);
 	}
-	 Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.println(rfromCenter * sin(bearfromCenter));
+	 //Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.println(rfromCenter * sin(bearfromCenter));
  }
 
 
@@ -334,8 +334,8 @@ void ClothoidControl(void)
 	static double cvRate,cvOffset,odoEnd,odo;
 	double yawRt;
 	float l,psi;
-	Serial.print("Current Mode :");Serial.print(controlMode);
-	Serial.print("psi:,");Serial.print(psi);
+	//Serial.print("Current Mode :");Serial.print(controlMode);
+	//Serial.print("psi:,");Serial.print(psi);
 	if(controlMode==0){
 		GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
@@ -362,7 +362,7 @@ void ClothoidControl(void)
 			//GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
 			GetLen(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l);
 			GetPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,-r,&psi);
-			CalcClothoidCurvatureRate(l,Pi2pi(psi-M_PI),Pi2pi(relYawAngle-M_PI),Pi2pi(psi-M_PI),&cvRate,&cvOffset,&odoEnd,5);//cp0へ						
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ						
 			odo = 0;
 			controlMode = 3;
 		}
@@ -374,7 +374,7 @@ void ClothoidControl(void)
 		if(odo>odoEnd){
 			Serial.println("Control3 done!!:,");//制御終了して次の制御へ
 			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,-r,&l,&psi);
-			CalcClothoidCurvatureRate(l,Pi2pi(psi-M_PI),Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ						
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ						
 			odo = 0;
 			controlMode = 4;
 			}
@@ -386,7 +386,7 @@ void ClothoidControl(void)
 		if(odo>odoEnd){
 			Serial.println("Control4 done!!:,");//制御終了して次の制御へ
 			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,r,&l,&psi);
-			CalcClothoidCurvatureRate(l,Pi2pi(psi-M_PI),Pi2pi(relYawAngle-M_PI),-M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp2定常円					
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),-M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp2定常円					
 			odo = 0;
 			controlMode = 5;
 		}
@@ -417,7 +417,7 @@ void ClothoidControl(void)
 				controlMode = 1;
 		}
 	}
-	Serial.print("odo:,");Serial.print(odo);Serial.print("TgtYaw:,");Serial.println(yawRt);
+	//Serial.print("odo:,");Serial.print(odo);Serial.print("TgtYaw:,");Serial.println(yawRt);
 }
 
 /************************************************************************
@@ -536,7 +536,12 @@ float SpdControlPID(float currentSpeed,float targetSpeed)
  }
  void GetPsi(float x0, float y0, float x1, float y1,float *psi)
 {
-	*psi = atan2f((y1-y0),(x1-x0));
+	if(cos(relYawAngle)>0){
+		*psi = atan2f((y1-y0),(x1-x0));
+	}
+	else{
+		*psi = atan2f(-(y1-y0),-(x1-x0));
+	}
 }
 void GetLenAndPsi(float x0, float y0, float x1, float y1,float *len, float *psi)
 {
@@ -635,8 +640,9 @@ int i;
 w = 1.0 / (float)(n); // 分割幅
 S = 0;
 CalcphiV(CompMinPsi,&phiV,phi0,phi1,psi,&lambda,n);
-phiU = phi1 - phi0 - phiV;
+Serial.print("phiVCalc:");Serial.println(phiV);
 h = l / lambda;
+phiU = phi1 - phi0 - phiV;
 for (i=0; i<n; i++) {
 cv[i] = (phiV + 2 * phiU * S)/h;
 S += w;
