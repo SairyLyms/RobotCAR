@@ -4,7 +4,6 @@
 #include <NMEAGPS.h>
 #include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
-#include <HMC5883L.h>
 #include <Servo.h>
 #include <Wire.h>
 #include <TaskScheduler.h>
@@ -38,8 +37,8 @@ float r = 3;
 #define HappiTow
 //#define Home
 #ifdef TechCom
-NeoGPS::Location_t cp1(365759506L,1400158539L);
-NeoGPS::Location_t cp2(365760193L,1400160370L);
+NeoGPS::Location_t cp0(365759506L,1400158539L);
+NeoGPS::Location_t cp1(365760193L,1400160370L);
 #elif defined Garden
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
@@ -187,6 +186,30 @@ float aveAngle(float in,int n)//n回平均計算(n回計算後に初めて出力
 		bufy = 0;
 		i = 0;
 	};
+	return ave;
+}
+
+float ave5(float in)//5回平均計算
+{
+	static float buf[5];
+	float ave;
+	for(int8_t i=0;i<5;i++){
+		i > 0 ? buf[i] = buf[i-1] : buf[0] = in;
+		ave += buf[i];
+	}
+	ave *= 0.2;
+	return ave;
+}
+
+float ave50(float in)//50回平均計算(50回計算後に初めて出力)
+{
+	static float buf[50];
+	float ave;
+		for(int8_t i=0;i<50;i++){
+			i > 0 ? buf[i] = buf[i-1] : buf[0] = in;
+			ave += buf[i];
+		}
+	buf[49] != 0 ? ave *= 0.02 : ave = 0;
 	return ave;
 }
 
@@ -503,6 +526,51 @@ int8_t StateManager()
  }
 
 /************************************************************************
+ * FUNCTION : 操舵制御指示値演算(ヨー角フィードバック)
+ * INPUT    : CPまでの目標角度、ヨーレート、
+ *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+ float StrControlPIDAng(int8_t mode, float value, float yawAngle,float targetYawAngle)
+ {
+	float sampleTime = sampleTimems * 0.001;
+ #ifdef CC01
+  float kp = 180,ti = 0.5 * 0.42 ,td = 0.125 * 0.42,diff;
+ #else
+ 	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
+ #endif
+ 	static float err[3],lastyawAngle,lastvalue;
+ 	static int8_t lastMode;
+
+ 	if(mode != lastMode){
+ 		err[0]=0;err[1]=0;err[2]=0;
+ 		lastyawAngle = 0;
+ 	}
+ 	!value ? value = 90 : 0;
+	err[2] = err[1];
+	err[1] = err[0];
+ 	err[0] = (targetYawAngle - yawAngle);
+ 	diff = kp * (err[0] - err[1] + err[0] * sampleTime / ti + td / sampleTime * (err[0]-2*err[1]+err[2]));
+
+  lastvalue ? value =  lastvalue + diff : 0;
+
+ 	value = LimitValue(value,120,60);
+	lastvalue = value;
+ 	lastyawAngle = yawAngle;
+ 	lastMode = mode;
+ #if 0
+ 	//#ifdef DEBUG
+ 	Serial.print("Time,");Serial.print(millis());
+ 	Serial.print(",err:,"); Serial.print(err[0]); Serial.print(",YawAng:,"); Serial.print(yawAngle);
+	Serial.print(",Diff:,"); Serial.print(diff);
+ 	Serial.print(",value:,"); Serial.println(value);
+ 	//#endif
+ #endif
+
+ return value;
+ }
+
+/************************************************************************
  * FUNCTION : 速度コントロール
  * INPUT    :
  *
@@ -678,8 +746,6 @@ double odometry(double v,int mode)
     lastMode = mode;
     lastTime = millis();
 }
-
-
 
 float convertRawAcceleration(int aRaw)
  {

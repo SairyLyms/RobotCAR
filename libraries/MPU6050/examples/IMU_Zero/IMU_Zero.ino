@@ -38,26 +38,26 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-  If an MPU6050 
-      * is an ideal member of its tribe, 
-      * is properly warmed up, 
-      * is at rest in a neutral position, 
-      * is in a location where the pull of gravity is exactly 1g, and 
-      * has been loaded with the best possible offsets, 
-then it will report 0 for all accelerations and displacements, except for 
-Z acceleration, for which it will report 16384 (that is, 2^14).  Your device 
-probably won't do quite this well, but good offsets will all get the baseline 
+  If an MPU6050
+      * is an ideal member of its tribe,
+      * is properly warmed up,
+      * is at rest in a neutral position,
+      * is in a location where the pull of gravity is exactly 1g, and
+      * has been loaded with the best possible offsets,
+then it will report 0 for all accelerations and displacements, except for
+Z acceleration, for which it will report 16384 (that is, 2^14).  Your device
+probably won't do quite this well, but good offsets will all get the baseline
 outputs close to these target values.
 
-  Put the MPU6050 in a flat and horizontal surface, and leave it operating for 
+  Put the MPU6050 in a flat and horizontal surface, and leave it operating for
 5-10 minutes so its temperature gets stabilized.
 
   Run this program.  A "----- done -----" line will indicate that it has done its best.
-With the current accuracy-related constants (NFast = 1000, NSlow = 10000), it will take 
+With the current accuracy-related constants (NFast = 1000, NSlow = 10000), it will take
 a few minutes to get there.
 
-  Along the way, it will generate a dozen or so lines of output, showing that for each 
-of the 6 desired offsets, it is 
+  Along the way, it will generate a dozen or so lines of output, showing that for each
+of the 6 desired offsets, it is
       * first, trying to find two estimates, one too low and one too high, and
       * then, closing in until the bracket can't be made smaller.
 
@@ -66,7 +66,7 @@ of the 6 desired offsets, it is
 As will have been shown in interspersed header lines, the six groups making up this
 line describe the optimum offsets for the X acceleration, Y acceleration, Z acceleration,
 X gyro, Y gyro, and Z gyro, respectively.  In the sample shown just above, the trial showed
-that +567 was the best offset for the X acceleration, -2223 was best for Y acceleration, 
+that +567 was the best offset for the X acceleration, -2223 was best for Y acceleration,
 and so on.
 
   The need for the delay between readings (usDelay) was brought to my attention by Nikolaus Doppelhammer.
@@ -117,10 +117,10 @@ const int LinesBetweenHeaders = 5;
       int Target[6];
       int LinesOut;
       int N;
-      
+
 void ForceHeader()
   { LinesOut = 99; }
-    
+
 void GetSmoothed()
   { int16_t RawValue[6];
     int i;
@@ -131,7 +131,7 @@ void GetSmoothed()
 
     for (i = 1; i <= N; i++)
       { // get sums
-        accelgyro.getMotion6(&RawValue[iAx], &RawValue[iAy], &RawValue[iAz], 
+        accelgyro.getMotion6(&RawValue[iAx], &RawValue[iAy], &RawValue[iAz],
                              &RawValue[iGx], &RawValue[iGy], &RawValue[iGz]);
         if ((i % 500) == 0)
           Serial.print(PERIOD);
@@ -204,12 +204,12 @@ void PullBracketsIn()
   { boolean AllBracketsNarrow;
     boolean StillWorking;
     int NewOffset[6];
-  
+
     Serial.println("\nclosing in:");
     AllBracketsNarrow = false;
     ForceHeader();
     StillWorking = true;
-    while (StillWorking) 
+    while (StillWorking)
       { StillWorking = false;
         if (AllBracketsNarrow && (N == NFast))
           { SetAveraging(NSlow); }
@@ -243,7 +243,7 @@ void PullBracketsIn()
           } // closing in
         ShowProgress();
       } // still working
-   
+
   } // PullBracketsIn
 
 void PullBracketsOut()
@@ -253,7 +253,7 @@ void PullBracketsOut()
 
     Serial.println("expanding:");
     ForceHeader();
- 
+
     while (!Done)
       { Done = true;
         SetOffsets(LowOffset);
@@ -268,7 +268,7 @@ void PullBracketsOut()
             else
               { NextLowOffset[i] = LowOffset[i]; }
           } // got low values
-      
+
         SetOffsets(HighOffset);
         GetSmoothed();
         for (int i = iAx; i <= iGz; i++)
@@ -300,19 +300,19 @@ void setup()
   { Initialize();
     for (int i = iAx; i <= iGz; i++)
       { // set targets and initial guesses
-        Target[i] = 0; // must fix for ZAccel 
+        Target[i] = 0; // must fix for ZAccel
         HighOffset[i] = 0;
         LowOffset[i] = 0;
       } // set targets and initial guesses
     Target[iAz] = 16384;
     SetAveraging(NFast);
-    
+
     PullBracketsOut();
     PullBracketsIn();
-    
+
     Serial.println("-------------- done --------------");
   } // setup
- 
+
 void loop()
   {
   } // loop
