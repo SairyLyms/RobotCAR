@@ -24,8 +24,8 @@
 /*	Private Constant Definition											*/
 /************************************************************************/
 int8_t n = 5;
-float lengthCenterToWaypoint = 7;
-float r = 3.0;
+float lengthCenterToWaypoint = 10;
+float r = 3;
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
@@ -44,8 +44,8 @@ NeoGPS::Location_t cp2(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680610L,1399957880L);
-NeoGPS::Location_t cp2(365679700L,1399957880L);
+NeoGPS::Location_t cp1(356674420L,1397909240L);
+NeoGPS::Location_t cp2(356673310L,1397907560L);
 //NeoGPS::Location_t cp0(365680389L,1399960780L);
 //NeoGPS::Location_t cp1(365679436L,1399957780L);
 #elif defined Home
@@ -116,6 +116,8 @@ void setup()
 
 	IMU.setXAccelOffset(454);IMU.setYAccelOffset(-3773);IMU.setZAccelOffset(630);
 	IMU.setXGyroOffset(107);IMU.setYGyroOffset(-23);IMU.setZGyroOffset(12);
+	IMU.setDLPFMode(MPU6050_DLPF_BW_20); 
+	//IMU.setRate(4);
 
 	FStr.attach(9,1000,2000);
 	PowUnit.attach(8,1000,2000);
@@ -306,12 +308,12 @@ void IntegratedChassisControl(void)
 				break;
 	//1:ヨー角キャリブレーション用
 	case 1:		fStrPwm = StrControlPID(rpyRate.z,0.0);	
-				puPwm = 107;
+				puPwm = 125;
 				break;
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.0);
+	case 3:		puPwm = SpdControlPID(gpsSpeedmps,3.0f);
 				ClothoidControl();
 				break;
 	case 0xf:	puPwm = SpdControlPID(gpsSpeedmps,2.0);
