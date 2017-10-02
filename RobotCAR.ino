@@ -2,7 +2,6 @@
 /*	Include Files														*/
 /************************************************************************/
 #include <NMEAGPS.h>
-#include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
 #include <Servo.h>
 #include <Wire.h>
@@ -23,7 +22,7 @@
 /*	Private Constant Definition											*/
 /************************************************************************/
 int8_t n = 5;
-float lengthCenterToWaypoint = 10;
+float lengthCenterToWaypoint = 7;
 float r = 3;
 // ================================================================
 // ===                       Course Data                        ===
@@ -43,10 +42,8 @@ NeoGPS::Location_t cp1(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(356674420L,1397909240L);
-NeoGPS::Location_t cp2(356673310L,1397907560L);
-//NeoGPS::Location_t cp0(365680389L,1399960780L);
-//NeoGPS::Location_t cp1(365679436L,1399957780L);
+NeoGPS::Location_t cp1(365680610L,1399957880L);
+NeoGPS::Location_t cp2(365679700L,1399957880L);
 #elif defined Home
 NeoGPS::Location_t cp1(385071520L,1403969840L);
 NeoGPS::Location_t cp2(385071540L,1403970570L);
@@ -59,25 +56,26 @@ NeoGPS::Location_t locCenter;
 volatile NMEAGPS  gps;
 volatile gps_fix  fix;
 MPU6050 IMU;
-HMC5883L mag;
-Madgwick AHRS;
 Servo FStr,PowUnit;
 Scheduler runner;
 /*座標系は安部先生の本に従う(右手系)*/
-VectorFloat rpyAngle;
+volatile VectorFloat rpyAngle;
+volatile bool update_data;
+volatile float relYawAngle = 0;												/*CPまでの角度(Heading:CCW+)*/
+
 VectorFloat rpyRate;
 VectorFloat acc;
 volatile float rfromCenter,bearfromCenter;
 volatile float heading;											/*方位(rad,deg)*/
 volatile float gpsSpeedmps;										/*GPS絶対速度(m/s)*/
 float directioncp;
-float relHeading;							 					/*CP間中心線からの相対角度(Heading:CCW+)*/
-float relYawAngle;												/*CPまでの角度(Heading:CCW+)*/
+volatile float relHeading;							 					/*CP間中心線からの相対角度(Heading:CCW+)*/
 float headingOffstIMU;
-float puPwm = 90;														/*パワーユニットのPWM*/
-float fStrPwm = 90;													/*ステアリングのPWM*/
+float puPwm = 90;												/*パワーユニットのPWM*/
+float fStrPwm = 90;												/*ステアリングのPWM*/
 uint8_t sampleTimems = 10;
 int8_t mode,imuCalibMode;
+uint16_t packetSize;
 // ================================================================
 // ===               				Prototype Def.			                ===
 // ================================================================
@@ -107,16 +105,14 @@ void setup()
 	Serial.begin(115200);
 	Serial1.begin(38400);
 
-	IMU.setI2CMasterModeEnabled(false);
-	IMU.setI2CBypassEnabled(true) ;
-	IMU.setSleepEnabled(false);
 	IMU.initialize();
-	mag.initialize();
-
+	IMU.dmpInitialize();
+	
 	IMU.setXAccelOffset(454);IMU.setYAccelOffset(-3773);IMU.setZAccelOffset(630);
 	IMU.setXGyroOffset(107);IMU.setYGyroOffset(-23);IMU.setZGyroOffset(12);
-	IMU.setDLPFMode(MPU6050_DLPF_BW_20); 
-	//IMU.setRate(4);
+	IMU.setDLPFMode(MPU6050_DLPF_BW_20);
+	IMU.setDMPEnabled(true);
+	packetSize = IMU.dmpGetFIFOPacketSize();
 
 	FStr.attach(9,1000,2000);
 	PowUnit.attach(8,1000,2000);
@@ -221,54 +217,22 @@ float ave50(float in)//50回平均計算(50回計算後に初めて出力)
 void IMUupdate(void)
 {
 	float gfx, gfy, gfz; //  Gyroscope raw values from MPU-6150
-	float afx,afy,afz;
-	float mfx, mfy, mfz;
-	int aix, aiy, aiz;
 	int gix, giy, giz;
-	int mix, miy, miz;
 
-	IMU.getMotion6(&aix, &aiy, &aiz, &gix, &giy, &giz);
-	mag.getHeading(&mix, &miy, &miz);
-
-	afx = convertRawAcceleration(aiy);
-	afy = -convertRawAcceleration(aix);
-	afz = convertRawAcceleration(aiz);
+	IMU.getMotion6(NULL, NULL, NULL, &gix, &giy, &giz);
 
 	gfx = convertRawGyro(giy);
 	gfy = -convertRawGyro(gix);
 	gfz = convertRawGyro(giz);
 
-	mfx = (float)mix;
-	mfy = (float)miy;
-	mfz = (float)miz;
-
-	AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
-
 	rpyRate.x = gfx * M_PI/180;
 	rpyRate.y = gfy * M_PI/180;
 	rpyRate.z = gfz * M_PI/180;
-
-	rpyAngle.x = AHRS.getRollRadians(); //ロール角
-	rpyAngle.y = AHRS.getPitchRadians(); //ピッチ角
-	rpyAngle.z = AHRS.getYawRadians(); //ヨー角
-	relYawAngle = Pi2pi(rpyAngle.z + headingOffstIMU);
-
-	acc.x = afx;
-	acc.y = afy;
-	acc.z = afz;
 
 #ifdef DEBUG_IMU
 	Serial.print("Time, ");
 	Serial.print(",");
 	Serial.print(millis() * 0.001);
-	Serial.print("Ax, ");
-	Serial.print(acc.x);
-	Serial.print(",");
-	Serial.print("Ay, ");
-	Serial.print(acc.y);
-	Serial.print(",");
-	Serial.print("Az, ");
-	Serial.print(acc.z);
 	Serial.print(",");
 	Serial.print("rollRt, ");
 	Serial.print(rpyRate.x);
@@ -282,6 +246,53 @@ void IMUupdate(void)
 	Serial.println(rpyAngle.z);
 #endif
 }
+
+void DMPupdate(float *_roll, float *_pitch, float *_yaw, bool *update_data)
+{
+	
+  // 戻り値のリセット
+  *update_data = false;
+  // センサーの状態を取得(INT_STATUS レジスタ)
+  const uint8_t mpuIntStatus = IMU.getIntStatus();
+  if (mpuIntStatus & 0x12)
+  {
+    // FIFOのデータサイズを取得
+    const uint16_t fifoCount = IMU.getFIFOCount();
+    if ((mpuIntStatus & 0x10) || (1024 <= fifoCount))
+    {
+      // オーバーフローを検出したらFIFOをリセット(そもそも検出されないコトあり…)
+      IMU.resetFIFO();
+      Serial.println(F("FIFO overflow!"));
+    }
+    else if((mpuIntStatus & 0x02) && (packetSize <= fifoCount))
+    {
+      // データの読み出し可能
+      *update_data = true;
+    }
+ 
+    // FIFOよりデータを読み出す
+    if (*update_data)
+    {
+      uint8_t fifoBuffer[64]; // FIFO storage buffer
+      IMU.getFIFOBytes(fifoBuffer, packetSize);
+ 
+      // データをオイラー角へ変換
+      Quaternion q;           // [w, x, y, z]         quaternion container
+      VectorFloat gravity;    // [x, y, z]            gravity vector
+	  float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+	  
+      IMU.dmpGetQuaternion(&q, fifoBuffer);
+      IMU.dmpGetGravity(&gravity, &q);
+      IMU.dmpGetYawPitchRoll(ypr, &q, &gravity);
+	  *_yaw   = -ypr[0];
+      *_pitch = ypr[1];
+	  *_roll  = ypr[2];
+	  relYawAngle = Pi2pi(*_yaw + headingOffstIMU);
+      IMU.resetFIFO();
+    }
+  }
+}
+
 
 float LimitValue(float inputValue,float lowerLimitValue,float upperLimitValue)
 {
@@ -303,6 +314,7 @@ void Initwait(void)
 	while (Serial.available() && Serial.read()) ; // empty buffer
 	while (!Serial.available()) ;          // wait for data
 	while (Serial.available() && Serial.read()) ; // empty buffer
+	IMU.resetFIFO();
 }
 
 /************************************************************************
@@ -331,18 +343,17 @@ void IntegratedChassisControl(void)
 				break;
 	//1:ヨー角キャリブレーション用
 	case 1:		fStrPwm = StrControlPID(rpyRate.z,0.0);	
-				puPwm = 125;
+				puPwm = 107;
 				break;
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = SpdControlPID(gpsSpeedmps,3.0f);
+	case 3:		puPwm = 107;//SpdControlPID(gpsSpeedmps,2.0f);
 				ClothoidControl();
 				break;
 	case 0xf:	puPwm = SpdControlPID(gpsSpeedmps,2.0);
 				fStrPwm = StrControlPID(rpyRate.z,0.0);
 				break;
-
 	default:	puPwm = 90;
 				break;
 	}
@@ -362,15 +373,22 @@ void ClothoidControl(void)
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
 	if(controlMode==0){
+		Serial.print("RelYaw:");Serial.println(relYawAngle);
 		GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
+		Serial.print("L:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+		Serial.print("RelYaw:");Serial.println(relYawAngle);
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
 		controlMode = 1;
 	}
 	else if(controlMode==1){//初回cp1旋回開始
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		Serial.print("odoEnd:");Serial.print(odoEnd);Serial.print("cvOfst:");Serial.print(cvOffset);
+		Serial.print("cvRate:");Serial.print(cvRate);Serial.print("Spd:");Serial.print(gpsSpeedmps);
+		Serial.print("TgtYawRt:");Serial.print(yawRt);Serial.print("RelYaw:");Serial.println(relYawAngle);
 		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
-		odo += gpsSpeedmps * sampleTimems * 0.001;		
+		odo += gpsSpeedmps * sampleTimems * 0.001;
 		if(odo>odoEnd){
+			Serial.print("RelYaw:");Serial.println(relYawAngle);
 			Serial.println("Control1 done!!:,");//制御終了して次の制御へ
 			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,r,&l,&psi);
 			CalcClothoidCurvatureRate(l,psi,relYawAngle,M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp1反対側へ定常円			
@@ -383,6 +401,7 @@ void ClothoidControl(void)
 		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
+			Serial.print("RelYaw:");Serial.println(relYawAngle);
 			Serial.println("Control2 done!!:,");//制御終了して次の制御へ
 			//GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
 			GetLen(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l);
@@ -456,6 +475,7 @@ int8_t StateManager()
 	static unsigned long startTime = 0;
 	if(rfromCenter < 20) {			//コース中央から半径20m内
 		if(mode <= 0){
+			Serial.print("yawAng, ");Serial.print(rpyAngle.z);
 			Serial.println("1:Start,d:debug");
 			while(Serial.available()){
 				switch(Serial.read()){
@@ -482,8 +502,8 @@ int8_t StateManager()
 			}
 		}
 		else if(mode == 2){
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));
 			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.println(F(" ,To start, put key '1' , To learning direction, put Key '0'"));
-			//Serial.print("Heading,");Serial.print(heading);Serial.print("RelHead,");Serial.print(relHeading);Serial.print("RelYaw:,"); Serial.println(relYawAngle);			
 			while(Serial.available()){
 				switch(Serial.read()){
 					case '0'	: mode = 1;imuCalibMode = 0;break; //再度IMU補正
@@ -617,8 +637,6 @@ void GetLenAndPsi(float x0, float y0, float x1, float y1,float *len, float *psi)
 {
 	GetLen(x0,y0,x1,y1,len);
 	GetPsi(x0,y0,x1,y1,psi);
-	//*len = sqrt((x1-x0)*(x1-x0) + (y1-y0)*(y1-y0));
-	//*psi = atan2f((y1-y0),(x1-x0));
 }
 /************************************************************************
  * FUNCTION : クロソイド曲線用関数群
@@ -734,29 +752,6 @@ double calcYawRt(double v,double odo,double cvRate,double cvOffset,double odoend
     return yawRt;
 }
 
-double odometry(double v,int mode)
-{
-    static double odo = 0;
-    static int lastMode = 0;
-    static unsigned long lastTime;  /*millis*/
-    if(lastMode != mode){odo = 0;}
-    else{
-        odo += v * (millis()-lastTime) * 0.001;
-    }
-    lastMode = mode;
-    lastTime = millis();
-}
-
-float convertRawAcceleration(int aRaw)
- {
-	// since we are using 2G(19.6 m/s^2) range
-	// -2g maps to a raw value of -32768
-	// +2g maps to a raw value of 32767
-
-	float a = (aRaw * 2.0 * 9.80665) / 32768.0;
-	return a;
-}
-
 float convertRawGyro(int gRaw)
  {
 	// since we are using 250 degrees/seconds range
@@ -781,8 +776,13 @@ void loop()
 }
 
 void serialEvent1(){
+	bool gpsReadDone = false;
 	while (gps.available(Serial1)) {
 		fix = gps.read();
+		gpsReadDone = true;
 	}
+	if(gpsReadDone){
 	GPSFIX();
+	DMPupdate(&rpyAngle.x,&rpyAngle.y,&rpyAngle.z,&update_data);
+	}
 }
