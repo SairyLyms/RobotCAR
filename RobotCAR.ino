@@ -42,8 +42,8 @@ NeoGPS::Location_t cp1(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680610L,1399957880L);
-NeoGPS::Location_t cp2(365679700L,1399957880L);
+NeoGPS::Location_t cp1(365680460L,1399958340L);
+NeoGPS::Location_t cp2(365679580L,1399958340L);
 #elif defined Home
 NeoGPS::Location_t cp1(385071520L,1403969840L);
 NeoGPS::Location_t cp2(385071540L,1403970570L);
@@ -102,16 +102,18 @@ void SetWaypoint(void)
 void setup()
 {
 	Wire.begin();
+	Wire.setClock(400000L);
 	Serial.begin(115200);
 	Serial1.begin(38400);
 
 	IMU.initialize();
 	IMU.dmpInitialize();
 	
+	IMU.setSleepEnabled(false);
+	IMU.setDMPEnabled(true);
 	IMU.setXAccelOffset(454);IMU.setYAccelOffset(-3773);IMU.setZAccelOffset(630);
 	IMU.setXGyroOffset(107);IMU.setYGyroOffset(-23);IMU.setZGyroOffset(12);
-	IMU.setDLPFMode(MPU6050_DLPF_BW_20);
-	IMU.setDMPEnabled(true);
+
 	packetSize = IMU.dmpGetFIFOPacketSize();
 
 	FStr.attach(9,1000,2000);
@@ -348,7 +350,7 @@ void IntegratedChassisControl(void)
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = 107;//SpdControlPID(gpsSpeedmps,2.0f);
+	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.5f);
 				ClothoidControl();
 				break;
 	case 0xf:	puPwm = SpdControlPID(gpsSpeedmps,2.0);
@@ -384,7 +386,8 @@ void ClothoidControl(void)
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
 		Serial.print("odoEnd:");Serial.print(odoEnd);Serial.print("cvOfst:");Serial.print(cvOffset);
 		Serial.print("cvRate:");Serial.print(cvRate);Serial.print("Spd:");Serial.print(gpsSpeedmps);
-		Serial.print("TgtYawRt:");Serial.print(yawRt);Serial.print("RelYaw:");Serial.println(relYawAngle);
+		Serial.print("TgtYawRt:");Serial.print(yawRt);Serial.print("RelYaw:");Serial.print(relYawAngle);
+		Serial.print("YawRt:");Serial.println(rpyRate.z);
 		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		if(odo>odoEnd){
@@ -518,7 +521,9 @@ int8_t StateManager()
 	}
 	else{//コース外
 		mode = -1;
-		//Serial.println("Out of Course");
+		Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print("yawAng, ");Serial.print(rpyAngle.z);
+		Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));		
+		Serial.println("Out of Course");
 	}
 }
 
@@ -758,7 +763,7 @@ float convertRawGyro(int gRaw)
 	// -250 maps to a raw value of -32768
 	// +250 maps to a raw value of 32767
 
-	float g = (gRaw * 250.0) / 32768.0;
+	float g = (gRaw * 2000.0f) / 32768.0;
 	return g;
 }
 
