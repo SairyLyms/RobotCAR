@@ -21,9 +21,12 @@
 /************************************************************************/
 /*	Private Constant Definition											*/
 /************************************************************************/
+float wheelbase = 0.266;
+float kStrAngle2Pwm = 191.2;
+float strPwmOffset = 88.38;
 int8_t n = 5;
-float lengthCenterToWaypoint = 7;
-float r = 3;
+float lengthCenterToWaypoint = 7.0f;
+float r = 3.0f;
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
@@ -42,8 +45,8 @@ NeoGPS::Location_t cp1(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680460L,1399958340L);
-NeoGPS::Location_t cp2(365679580L,1399958340L);
+NeoGPS::Location_t cp1(365680540L,1399956200L);
+NeoGPS::Location_t cp2(365679740L,1399957880L);
 #elif defined Home
 NeoGPS::Location_t cp1(385071520L,1403969840L);
 NeoGPS::Location_t cp2(385071540L,1403970570L);
@@ -62,17 +65,17 @@ Scheduler runner;
 volatile VectorFloat rpyAngle;
 volatile bool update_data;
 volatile float relYawAngle = 0;												/*CPまでの角度(Heading:CCW+)*/
-
+volatile VectorInt16 rpyRatei;
 VectorFloat rpyRate;
 VectorFloat acc;
 volatile float rfromCenter,bearfromCenter;
 volatile float heading;											/*方位(rad,deg)*/
 volatile float gpsSpeedmps;										/*GPS絶対速度(m/s)*/
 float directioncp;
-volatile float relHeading;							 					/*CP間中心線からの相対角度(Heading:CCW+)*/
+volatile float relHeading,GPSyawRt;							 					/*CP間中心線からの相対角度(Heading:CCW+)*/
 float headingOffstIMU;
 float puPwm = 90;												/*パワーユニットのPWM*/
-float fStrPwm = 90;												/*ステアリングのPWM*/
+float fStrPwm = strPwmOffset;									/*ステアリングのPWM*/
 uint8_t sampleTimems = 10;
 int8_t mode,imuCalibMode;
 uint16_t packetSize;
@@ -111,8 +114,8 @@ void setup()
 	
 	IMU.setSleepEnabled(false);
 	IMU.setDMPEnabled(true);
-	IMU.setXAccelOffset(454);IMU.setYAccelOffset(-3773);IMU.setZAccelOffset(630);
-	IMU.setXGyroOffset(107);IMU.setYGyroOffset(-23);IMU.setZGyroOffset(12);
+	IMU.setXAccelOffset(478);IMU.setYAccelOffset(-3781);IMU.setZAccelOffset(585);
+	IMU.setXGyroOffset(74);IMU.setYGyroOffset(-43);IMU.setZGyroOffset(32);
 
 	packetSize = IMU.dmpGetFIFOPacketSize();
 
@@ -158,13 +161,15 @@ void Task2(void)
  void GPSFIX(void)
  {
 	 if(fix.valid.speed){gpsSpeedmps = fix.speed() * 0.514444;}
-	 if(fix.valid.heading){heading = -fix.heading() * 0.01745329251;relHeading = Pi2pi(heading + directioncp);}
+	 if(fix.valid.heading){
+		 heading = -fix.heading() * 0.01745329251;
+		 relHeading = Pi2pi(heading + directioncp);
+		}
 	 if(fix.valid.location) {
 		NeoGPS::Location_t current(fix.location.lat(),fix.location.lon());
 		rfromCenter = fix.location.DistanceKm(locCenter) * 1000.0f;
 		bearfromCenter = -Pi2pi(locCenter.BearingTo(current) - directioncp);
 	}
-	 //Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.println(rfromCenter * sin(bearfromCenter));
  }
 
 
@@ -221,15 +226,21 @@ void IMUupdate(void)
 	float gfx, gfy, gfz; //  Gyroscope raw values from MPU-6150
 	int gix, giy, giz;
 
+#if 1
 	IMU.getMotion6(NULL, NULL, NULL, &gix, &giy, &giz);
-
 	gfx = convertRawGyro(giy);
 	gfy = -convertRawGyro(gix);
 	gfz = convertRawGyro(giz);
-
 	rpyRate.x = gfx * M_PI/180;
 	rpyRate.y = gfy * M_PI/180;
 	rpyRate.z = gfz * M_PI/180;
+#endif
+
+#if 0
+	rpyRate.x = rpyRatei.y * M_PI/180;
+	rpyRate.y = -rpyRatei.x * M_PI/180;
+	rpyRate.z = rpyRatei.z * M_PI/180;
+#endif
 
 #ifdef DEBUG_IMU
 	Serial.print("Time, ");
@@ -283,8 +294,9 @@ void DMPupdate(float *_roll, float *_pitch, float *_yaw, bool *update_data)
       VectorFloat gravity;    // [x, y, z]            gravity vector
 	  float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 	  
-      IMU.dmpGetQuaternion(&q, fifoBuffer);
-      IMU.dmpGetGravity(&gravity, &q);
+	  IMU.dmpGetQuaternion(&q, fifoBuffer);
+	  //IMU.dmpGetGyro(&rpyRatei, fifoBuffer);	  
+	  IMU.dmpGetGravity(&gravity, &q);
       IMU.dmpGetYawPitchRoll(ypr, &q, &gravity);
 	  *_yaw   = -ypr[0];
       *_pitch = ypr[1];
@@ -340,7 +352,7 @@ void IntegratedChassisControl(void)
 {
 	StateManager();
 	switch (mode) {
-	case 0:		fStrPwm = StrControlPID(rpyRate.z,0.0);	
+	case 0:		fStrPwm = strPwmOffset;//StrControlPID(rpyRate.z,0.0);	
 				puPwm = 90;
 				break;
 	//1:ヨー角キャリブレーション用
@@ -350,11 +362,29 @@ void IntegratedChassisControl(void)
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.5f);
+	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.5f);//110;
 				ClothoidControl();
 				break;
-	case 0xf:	puPwm = SpdControlPID(gpsSpeedmps,2.0);
-				fStrPwm = StrControlPID(rpyRate.z,0.0);
+	case 0xf:	
+				if(Serial.available()){
+					switch(Serial.read()){
+						case '0'	: fStrPwm = 90;break;
+						case '1'	: fStrPwm -= 2;break; //再度IMU補正
+						case '2'	: fStrPwm += 2;break; //走行開始
+						//case '3'	: fStrPwm = 70;break; //CW
+						//case '4'	: fStrPwm = 104;break; //CCW
+						case 's'	: puPwm = 110;break; //走行開始
+						case 'r'	: headingOffstIMU = -rpyAngle.z;
+						default		: puPwm = 90;break;	
+					}
+				}
+				Serial.print("Strpwm,");Serial.print(fStrPwm);Serial.print(",");
+				Serial.print("yawAng,");Serial.print(relYawAngle * 180/M_PI);Serial.print(",");
+				Serial.print("x,");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print(",");
+				Serial.print("y,");Serial.print(rfromCenter * sin(bearfromCenter));Serial.print(",");
+				Serial.print("yawRate,");Serial.print(rpyRate.z);Serial.print(",");
+				Serial.print("Speed,");Serial.print(gpsSpeedmps);Serial.print(",");
+				Serial.println("");
 				break;
 	default:	puPwm = 90;
 				break;
@@ -369,99 +399,121 @@ void IntegratedChassisControl(void)
 void ClothoidControl(void)
 {	
 	static int controlMode = 0;
-	static double cvRate,cvOffset,odoEnd,odo;
-	double yawRt;
+	static float cvRate,cvOffset,odoEnd,odo;
+	float yawRt;
 	float l,psi;
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
 	if(controlMode==0){
-		Serial.print("RelYaw:");Serial.println(relYawAngle);
 		GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
-		Serial.print("L:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
-		Serial.print("RelYaw:");Serial.println(relYawAngle);
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
 		controlMode = 1;
 	}
 	else if(controlMode==1){//初回cp1旋回開始
-		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		Serial.print("odoEnd:");Serial.print(odoEnd);Serial.print("cvOfst:");Serial.print(cvOffset);
-		Serial.print("cvRate:");Serial.print(cvRate);Serial.print("Spd:");Serial.print(gpsSpeedmps);
-		Serial.print("TgtYawRt:");Serial.print(yawRt);Serial.print("RelYaw:");Serial.print(relYawAngle);
-		Serial.print("YawRt:");Serial.println(rpyRate.z);
-		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
+		//yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("relHeading:");Serial.println(relHeading);
+		fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);//StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;
 		if(odo>odoEnd){
-			Serial.print("RelYaw:");Serial.println(relYawAngle);
-			Serial.println("Control1 done!!:,");//制御終了して次の制御へ
+			Serial.println("Control1 done!! Next2:,");//制御終了して次の制御へ
 			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,r,&l,&psi);
-			CalcClothoidCurvatureRate(l,psi,relYawAngle,M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp1反対側へ定常円			
+			CalcClothoidCurvatureRate(l,psi,relHeading,M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp1反対側へ定常円			
+			//CalcClothoidCurvatureRate(l,psi,relYawAngle,M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp1反対側へ定常円
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));			
+			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
+			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);				
 			odo = 0;
 			controlMode = 2;
 		}
 	}
 	else if(controlMode==2){//cp1定常円
-		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
+		//yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);//StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
-			Serial.print("RelYaw:");Serial.println(relYawAngle);
-			Serial.println("Control2 done!!:,");//制御終了して次の制御へ
-			//GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
+			Serial.println("Control2 done!! Next3:,");//制御終了して次の制御へ
 			GetLen(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l);
 			GetPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,-r,&psi);
-			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ						
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relHeading-M_PI),psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
+			//CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));
+			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
+			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);							
 			odo = 0;
 			controlMode = 3;
 		}
 	}
 	else if(controlMode==3){//cp0へ
-		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
+		Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("relHeading:");Serial.println(relHeading);
+		fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);//StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
-			Serial.println("Control3 done!!:,");//制御終了して次の制御へ
+			Serial.println("Control3 done!! Next4:,");//制御終了して次の制御へ
 			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,-r,&l,&psi);
-			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ						
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relHeading-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ
+			//CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),0,&cvRate,&cvOffset,&odoEnd,5);//cp2へ
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));
+			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
+			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);							
 			odo = 0;
 			controlMode = 4;
 			}
 	}
 	else if(controlMode==4){//cp2へ
-		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
+		//yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("relHeading:");Serial.println(relHeading);		
+		fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);//StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
-			Serial.println("Control4 done!!:,");//制御終了して次の制御へ
+			Serial.println("Control4 done!! Next5:,");//制御終了して次の制御へ
 			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),-lengthCenterToWaypoint,r,&l,&psi);
-			CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),-M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp2定常円					
+			CalcClothoidCurvatureRate(l,psi,Pi2pi(relHeading-M_PI),-M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp2定常円
+			//CalcClothoidCurvatureRate(l,psi,Pi2pi(relYawAngle-M_PI),-M_PI,&cvRate,&cvOffset,&odoEnd,5);//cp2定常円
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));
+			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
+			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);						
 			odo = 0;
 			controlMode = 5;
 		}
 	}
 	else if(controlMode==5){//cp2定常円
-		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
+		//yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);//StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
-			Serial.println("Control5 done!!:,");//制御終了して次の制御へ
-			//GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l,&psi);
+			Serial.println("Control5 done!! Next6:,");//制御終了して次の制御へ
 			GetLen(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),0,0,&l);
 			GetPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&psi);
-			CalcClothoidCurvatureRate(l,psi,relYawAngle,psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
+			CalcClothoidCurvatureRate(l,psi,relHeading,psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
+			//CalcClothoidCurvatureRate(l,psi,relYawAngle,psi,&cvRate,&cvOffset,&odoEnd,5);//cp0へ
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));
+			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
+			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);		
 			odo = 0;
 			controlMode = 6;
 		}
 	}
 	else if(controlMode==6){//cp0へ
-		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-		fStrPwm  = StrControlPID(rpyRate.z,yawRt);
+		//yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("relHeading:");Serial.println(relHeading);
+		fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);//StrControlPID(rpyRate.z,yawRt);
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
-				Serial.println("Control6 done!!:,");//制御終了して次の制御へ
-				GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
-				CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);//cp1右側へ
-				odo = 0;
-				controlMode = 1;
+			Serial.println("Control6 done!! Next1:,");//制御終了して次の制御へ
+			GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
+			CalcClothoidCurvatureRate(l,psi,relHeading,0,&cvRate,&cvOffset,&odoEnd,5);
+			//CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);//cp1右側へ
+			Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));
+			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
+			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
+			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);		
+			odo = 0;
+			controlMode = 1;
 		}
 	}
 	//Serial.print("odo:,");Serial.print(odo);Serial.print("TgtYaw:,");Serial.println(yawRt);
@@ -478,7 +530,7 @@ int8_t StateManager()
 	static unsigned long startTime = 0;
 	if(rfromCenter < 20) {			//コース中央から半径20m内
 		if(mode <= 0){
-			Serial.print("yawAng, ");Serial.print(rpyAngle.z);
+			Serial.print("yawAng, ");Serial.print(rpyAngle.z);Serial.print("yawRt, ");Serial.print(rpyRate.z);
 			Serial.println("1:Start,d:debug");
 			while(Serial.available()){
 				switch(Serial.read()){
@@ -516,12 +568,22 @@ int8_t StateManager()
 			}
 		}
 		else if(mode == 3){
-			//Serial.println("Now Mode 3");
+			if(Serial.available()){
+				switch(Serial.read()){
+					default		: mode = 4;break;	
+				}
+			}
+		}
+		else if(mode == 4){
+			 puPwm = 90;
+			 Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("yawRt, ");Serial.print(rpyRate.z);
+			 Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));		
+			 Serial.println("Out of Course");
 		}
 	}
 	else{//コース外
 		mode = -1;
-		Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print("yawAng, ");Serial.print(rpyAngle.z);
+		Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("yawRt, ");Serial.print(rpyRate.z);
 		Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));		
 		Serial.println("Out of Course");
 	}
@@ -536,7 +598,7 @@ int8_t StateManager()
  ***********************************************************************/
  float StrControlPID(float currentYawAngle,float targetYawAngle)
  {
-	float KP = 30,TI = 0.105,TD = 0.02625,bias = 90;
+	float KP = 30,TI = 0.105,TD = 0.02625,bias = strPwmOffset;
 	static float error_prior = 0,integral = 0;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
@@ -648,24 +710,24 @@ void GetLenAndPsi(float x0, float y0, float x1, float y1,float *len, float *psi)
  * INPUT    :
  * OUTPUT   :
  ***********************************************************************/
-double Phi(double phi0, double phiV, double phiU, double S)
+float Phi(float phi0, float phiV, float phiU, float S)
 {
 return phi0 + phiV * S + phiU * S * S;
 }
 
-Complex slope(double phi0,double phiV, double phiU, double S)
+Complex slope(float phi0,float phiV, float phiU, float S)
 {
   Complex I(0,Phi(phi0, phiV, phiU, S));
   return I.c_exp();
 }
 
-int CalcParamClothoid(double phi0, double phi1 ,double phiV,double *psi,double *lambda ,int8_t n)
+int CalcParamClothoid(float phi0, float phi1 ,float phiV,float *psi,float *lambda ,int8_t n)
 {
   Complex integral = (0,0),dA = (0,0); // 積分結果
-  double w = 1/(double)n; // 積分範囲を n 個に分割したときの幅
-  double S,phiUCalc;
+  float w = 1/(float)n; // 積分範囲を n 個に分割したときの幅
+  float S,phiUCalc;
   // === Simpson 法による積分 (開始） ===
-  w = 1 / (double)n; // 分割幅
+  w = 1 / (float)n; // 分割幅
   S = 0;
   phiUCalc = phi1 - phi0 - phiV;
   for (int8_t i=0; i<n; i++) {
@@ -678,20 +740,20 @@ int CalcParamClothoid(double phi0, double phi1 ,double phiV,double *psi,double *
 return 0;
 }
 
-float CompMinPsi(double phi0, double phi1 ,double phiV , double targetpsi,double *lambda , int8_t n)
+float CompMinPsi(float phi0, float phi1 ,float phiV , float targetpsi,float *lambda , int8_t n)
 {
-    double psi,x;
+    float psi,x;
     CalcParamClothoid(phi0,phi1,phiV,&psi,lambda,n);
     Complex I1(0,psi),I2(0,(targetpsi - phi0));
     x = (I1.c_exp() - I2.c_exp()).modulus();
 	  return x;
 }
 
-float CalcphiV(double (*f)(double,double,double,double,double *,int8_t), double *xmin, double phi0, double phi1 , double targetpsi, double *lambda, int8_t n)
+float CalcphiV(float (*f)(float,float,float,float,float *,int8_t), float *xmin, float phi0, float phi1 , float targetpsi, float *lambda, int8_t n)
 {
-	double f1, f2, x0, x1, x2, x3;
-    double ax = -6.28;
-    double bx = 6.28;
+	float f1, f2, x0, x1, x2, x3;
+    float ax = -6.28;
+    float bx = 6.28;
 	x0 = ax;							/* ４点 x0,x1,x2,x3 を更新していく */
 	x1 = ax + C * (bx - ax);
 	x2 = ax + R * (bx - ax);
@@ -724,10 +786,10 @@ float CalcphiV(double (*f)(double,double,double,double,double *,int8_t), double 
 	}
 }
 
-void CalcClothoidCurvatureRate(double l, double psi, double phi0,double phi1, double *cvRate,double *cvOffset,double *odoEnd,int n)
+void CalcClothoidCurvatureRate(float l, float psi, float phi0,float phi1, float *cvRate,float *cvOffset,float *odoEnd,int n)
 {
-double w; // 積分範囲を n 個に分割したときの幅
-double S,lambda,phiV,phiU,h,odo[n],cv[n];
+float w; // 積分範囲を n 個に分割したときの幅
+float S,lambda,phiV,phiU,h,odo[n],cv[n];
 int i;
 // === Simpson 法による積分 (開始） ===
 w = 1.0 / (float)(n); // 分割幅
@@ -746,15 +808,26 @@ odo[i] = h*S;
 *odoEnd = odo[n-1];
 }
 
-double calcYawRt(double v,double odo,double cvRate,double cvOffset,double odoend)
+float calcYawRt(float v,float odo,float cvRate,float cvOffset,float odoend)
 {
     /*入力    :  速度v,現在距離odo,曲率距離比cvRate,距離ゼロ時曲率*/
     /*出力    :  ヨーレート*/
-    double yawRt;
+    float yawRt;
     if(odo >= 0 && odo < odoend){yawRt = v * ((odo * cvRate) + cvOffset);}
     else if(odo >= odoend){yawRt = v * ((odoend * cvRate) + cvOffset);}
     else{yawRt = v * cvOffset;}
     return yawRt;
+}
+
+float calcStrpwm(float odo,float cvRate,float cvOffset,float odoend)
+{
+    /*入力    :  速度v,現在距離odo,曲率距離比cvRate,距離ゼロ時曲率*/
+    /*出力    :  ヨーレート*/
+	float pwm;
+    if(odo >= 0 && odo < odoend){pwm = kStrAngle2Pwm * (wheelbase * ((odo * cvRate) + cvOffset)) + strPwmOffset;}
+    else if(odo >= odoend){pwm = kStrAngle2Pwm * (wheelbase * ((odoend * cvRate) + cvOffset)) + strPwmOffset;}
+    else{pwm = strPwmOffset;}
+    return pwm;
 }
 
 float convertRawGyro(int gRaw)
