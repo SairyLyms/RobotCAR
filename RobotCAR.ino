@@ -2,6 +2,7 @@
 /*	Include Files														*/
 /************************************************************************/
 #include <NMEAGPS.h>
+#include <MadgwickAHRS.h>
 #include <MPU6050_6Axis_MotionApps20.h>
 #include <Servo.h>
 #include <Wire.h>
@@ -55,39 +56,37 @@ NeoGPS::Location_t cp1(385156170L,1403968200L);
 NeoGPS::Location_t cp2(385155440L,1403966060L);
 #endif
 NeoGPS::Location_t locCenter;
-
+Madgwick AHRS;
 volatile NMEAGPS  gps;
 volatile gps_fix  fix;
 MPU6050 IMU;
 Servo FStr,PowUnit;
 Scheduler runner;
 /*座標系は安部先生の本に従う(右手系)*/
-volatile VectorFloat rpyAngle;
-volatile bool update_data;
-volatile float relYawAngle = 0;												/*CPまでの角度(Heading:CCW+)*/
-volatile VectorInt16 rpyRatei;
+VectorFloat rpyAngle;
+float relYawAngle = 0;									/*CPまでの角度(Heading:CCW+)*/
 VectorFloat rpyRate;
 VectorFloat acc;
 volatile float rfromCenter,bearfromCenter;
 volatile float heading;											/*方位(rad,deg)*/
 volatile float gpsSpeedmps;										/*GPS絶対速度(m/s)*/
 float directioncp;
-volatile float relHeading,GPSyawRt;							 					/*CP間中心線からの相対角度(Heading:CCW+)*/
+volatile float relHeading,GPSyawRt;							 	/*CP間中心線からの相対角度(Heading:CCW+)*/
 float headingOffstIMU;
 float puPwm = 90;												/*パワーユニットのPWM*/
 float fStrPwm = strPwmOffset;									/*ステアリングのPWM*/
+float SampleTime10ms = 10.0f;
 uint8_t sampleTimems = 10;
 int8_t mode,imuCalibMode;
-uint16_t packetSize;
 // ================================================================
-// ===               				Prototype Def.			                ===
+// ===              	Prototype Def.			                ===
 // ================================================================
 void Task1(void);
 void Task2(void);
 void Task5(void);
 void Task10(void);
 // ================================================================
-// ===               						Tasks						                ===
+// ===               		Tasks				                ===
 // ================================================================
 Task T1(sampleTimems, TASK_FOREVER, &Task1, &runner,true);
 Task T2(sampleTimems * 2, TASK_FOREVER, &Task2, &runner,true);
@@ -109,15 +108,13 @@ void setup()
 	Serial.begin(115200);
 	Serial1.begin(38400);
 
-	IMU.initialize();
-	IMU.dmpInitialize();
-	
+	IMU.initialize();	
 	IMU.setSleepEnabled(false);
-	IMU.setDMPEnabled(true);
+	IMU.setDLPFMode(MPU6050_DLPF_BW_5); 
+	IMU.setFullScaleGyroRange(MPU6050_GYRO_FS_500); 
+	IMU.setRate(9);
 	IMU.setXAccelOffset(478);IMU.setYAccelOffset(-3781);IMU.setZAccelOffset(585);
 	IMU.setXGyroOffset(74);IMU.setYGyroOffset(-43);IMU.setZGyroOffset(32);
-
-	packetSize = IMU.dmpGetFIFOPacketSize();
 
 	FStr.attach(9,1000,2000);
 	PowUnit.attach(8,1000,2000);
@@ -139,7 +136,9 @@ void setup()
 void Task1(void)
 {
 	IMUupdate();
+	HeadingUpdateIMU(&heading, &relHeading, rpyRate.z, SampleTime10ms);
 	IntegratedChassisControl();
+	GetSampleTime10ms(&SampleTime10ms);
 }
 
 /************************************************************************
@@ -224,28 +223,46 @@ float ave50(float in)//50回平均計算(50回計算後に初めて出力)
 void IMUupdate(void)
 {
 	float gfx, gfy, gfz; //  Gyroscope raw values from MPU-6150
+	float afx,afy,afz;
+	int aix, aiy, aiz;
 	int gix, giy, giz;
 
-#if 1
-	IMU.getMotion6(NULL, NULL, NULL, &gix, &giy, &giz);
+	IMU.getMotion6(&aix, &aiy, &aiz, &gix, &giy, &giz);
+	afx = convertRawAcceleration(aiy);
+	afy = -convertRawAcceleration(aix);
+	afz = convertRawAcceleration(aiz);
+
 	gfx = convertRawGyro(giy);
 	gfy = -convertRawGyro(gix);
 	gfz = convertRawGyro(giz);
+
+	AHRS.updateIMU(gfx, gfy, gfz, afx, afy, afz);
+
 	rpyRate.x = gfx * M_PI/180;
 	rpyRate.y = gfy * M_PI/180;
 	rpyRate.z = gfz * M_PI/180;
-#endif
 
-#if 0
-	rpyRate.x = rpyRatei.y * M_PI/180;
-	rpyRate.y = -rpyRatei.x * M_PI/180;
-	rpyRate.z = rpyRatei.z * M_PI/180;
-#endif
+	rpyAngle.x = AHRS.getRollRadians(); //ロール角
+	rpyAngle.y = AHRS.getPitchRadians(); //ピッチ角
+	rpyAngle.z = AHRS.getYawRadians(); //ヨー角
+	relYawAngle = Pi2pi(rpyAngle.z + headingOffstIMU);
+
+	acc.x = afx;
+	acc.y = afy;
+	acc.z = afz;
 
 #ifdef DEBUG_IMU
 	Serial.print("Time, ");
 	Serial.print(",");
 	Serial.print(millis() * 0.001);
+	Serial.print("Ax, ");
+	Serial.print(acc.x);
+	Serial.print(",");
+	Serial.print("Ay, ");
+	Serial.print(acc.y);
+	Serial.print(",");
+	Serial.print("Az, ");
+	Serial.print(acc.z);
 	Serial.print(",");
 	Serial.print("rollRt, ");
 	Serial.print(rpyRate.x);
@@ -258,55 +275,8 @@ void IMUupdate(void)
 	Serial.print("yawAng, ");
 	Serial.println(rpyAngle.z);
 #endif
-}
 
-void DMPupdate(float *_roll, float *_pitch, float *_yaw, bool *update_data)
-{
-	
-  // 戻り値のリセット
-  *update_data = false;
-  // センサーの状態を取得(INT_STATUS レジスタ)
-  const uint8_t mpuIntStatus = IMU.getIntStatus();
-  if (mpuIntStatus & 0x12)
-  {
-    // FIFOのデータサイズを取得
-    const uint16_t fifoCount = IMU.getFIFOCount();
-    if ((mpuIntStatus & 0x10) || (1024 <= fifoCount))
-    {
-      // オーバーフローを検出したらFIFOをリセット(そもそも検出されないコトあり…)
-      IMU.resetFIFO();
-      Serial.println(F("FIFO overflow!"));
-    }
-    else if((mpuIntStatus & 0x02) && (packetSize <= fifoCount))
-    {
-      // データの読み出し可能
-      *update_data = true;
-    }
- 
-    // FIFOよりデータを読み出す
-    if (*update_data)
-    {
-      uint8_t fifoBuffer[64]; // FIFO storage buffer
-      IMU.getFIFOBytes(fifoBuffer, packetSize);
- 
-      // データをオイラー角へ変換
-      Quaternion q;           // [w, x, y, z]         quaternion container
-      VectorFloat gravity;    // [x, y, z]            gravity vector
-	  float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
-	  
-	  IMU.dmpGetQuaternion(&q, fifoBuffer);
-	  //IMU.dmpGetGyro(&rpyRatei, fifoBuffer);	  
-	  IMU.dmpGetGravity(&gravity, &q);
-      IMU.dmpGetYawPitchRoll(ypr, &q, &gravity);
-	  *_yaw   = -ypr[0];
-      *_pitch = ypr[1];
-	  *_roll  = ypr[2];
-	  relYawAngle = Pi2pi(*_yaw + headingOffstIMU);
-      IMU.resetFIFO();
-    }
-  }
 }
-
 
 float LimitValue(float inputValue,float lowerLimitValue,float upperLimitValue)
 {
@@ -530,7 +500,8 @@ int8_t StateManager()
 	static unsigned long startTime = 0;
 	if(rfromCenter < 20) {			//コース中央から半径20m内
 		if(mode <= 0){
-			Serial.print("yawAng, ");Serial.print(rpyAngle.z);Serial.print("yawRt, ");Serial.print(rpyRate.z);
+			Serial.print("yawAng, ");Serial.print(rpyAngle.z);Serial.print(",");Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print(",");
+			Serial.print("Heading, ");Serial.print(heading);Serial.print(",");
 			Serial.println("1:Start,d:debug");
 			while(Serial.available()){
 				switch(Serial.read()){
@@ -576,15 +547,21 @@ int8_t StateManager()
 		}
 		else if(mode == 4){
 			 puPwm = 90;
-			 Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("yawRt, ");Serial.print(rpyRate.z);
-			 Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));		
+			 Serial.print("RelYaw,");Serial.print(relYawAngle);Serial.print(",");
+			 Serial.print("yawRt,");Serial.print(rpyRate.z);Serial.print(",");
+			 Serial.print("x,");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print(",");
+			 Serial.print("y,");Serial.print(rfromCenter * sin(bearfromCenter));Serial.print(",");		
 			 Serial.println("Out of Course");
 		}
 	}
 	else{//コース外
 		mode = -1;
-		Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("yawRt, ");Serial.print(rpyRate.z);
-		Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));		
+		Serial.print("RelYaw,");Serial.print(relYawAngle);Serial.print(",");
+		Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print(",");
+		Serial.print("Heading, ");Serial.print(heading);Serial.print(",");
+		Serial.print("RelHeading, ");Serial.print(relHeading);Serial.print(",");
+		Serial.print("x:");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print(",");
+		Serial.print("y:");Serial.print(rfromCenter * sin(bearfromCenter));Serial.print(",");
 		Serial.println("Out of Course");
 	}
 }
@@ -788,24 +765,24 @@ float CalcphiV(float (*f)(float,float,float,float,float *,int8_t), float *xmin, 
 
 void CalcClothoidCurvatureRate(float l, float psi, float phi0,float phi1, float *cvRate,float *cvOffset,float *odoEnd,int n)
 {
-float w; // 積分範囲を n 個に分割したときの幅
-float S,lambda,phiV,phiU,h,odo[n],cv[n];
-int i;
-// === Simpson 法による積分 (開始） ===
-w = 1.0 / (float)(n); // 分割幅
-S = 0;
-CalcphiV(CompMinPsi,&phiV,phi0,phi1,psi,&lambda,n);
-Serial.print("phiVCalc:");Serial.println(phiV);
-h = l / lambda;
-phiU = phi1 - phi0 - phiV;
-for (i=0; i<n; i++) {
-cv[i] = (phiV + 2 * phiU * S)/h;
-S += w;
-odo[i] = h*S;
-}
-*cvRate = (cv[n-1] - cv[0])/(odo[n-1]-odo[0]);
-*cvOffset = cv[0];
-*odoEnd = odo[n-1];
+	float w; // 積分範囲を n 個に分割したときの幅
+	float S,lambda,phiV,phiU,h,odo[n],cv[n];
+	int i;
+	// === Simpson 法による積分 (開始） ===
+	w = 1.0 / (float)(n); // 分割幅
+	S = 0;
+	CalcphiV(CompMinPsi,&phiV,phi0,phi1,psi,&lambda,n);
+	Serial.print("phiVCalc:");Serial.println(phiV);
+	h = l / lambda;
+	phiU = phi1 - phi0 - phiV;
+	for (i=0; i<n; i++) {
+		cv[i] = (phiV + 2 * phiU * S)/h;
+		S += w;
+		odo[i] = h*S;
+	}
+	*cvRate = (cv[n-1] - cv[0])/(odo[n-1]-odo[0]);
+	*cvOffset = cv[0];
+	*odoEnd = odo[n-1];
 }
 
 float calcYawRt(float v,float odo,float cvRate,float cvOffset,float odoend)
@@ -830,16 +807,53 @@ float calcStrpwm(float odo,float cvRate,float cvOffset,float odoend)
     return pwm;
 }
 
+float convertRawAcceleration(int aRaw)
+{
+   // since we are using 2G(19.6 m/s^2) range
+   // -2g maps to a raw value of -32768
+   // +2g maps to a raw value of 32767
+
+   float a = (aRaw * 2.0 * 9.80665) / 32768.0;
+   return a;
+}
+
+float SelYawRt(float yawRtIMU, float fStrPWM, float vGPS, float puPWM)
+{
+    if(vGPS > 1.0f && (puPWM > 100 || puPWM < 80)){
+        if((fStrPWM-strPwmOffset)){//ゼロ割防止
+        	return vGPS / (0.266 / ((fStrPWM - strPwmOffset) / kStrAngle2Pwm));
+        }
+        else{//ゼロ割防止
+        	return 0;
+        }
+    }
+    else{
+        return yawRtIMU;
+    }
+}
+
+void HeadingUpdateIMU(float *heading,float *relHeading, float yawRtIMU,float SampleTime10ms)
+{
+	*heading += yawRtIMU * SampleTime10ms;
+	*relHeading += yawRtIMU * SampleTime10ms;
+}
+
+void GetSampleTime10ms(float *SampleTime10ms)
+{
+	static unsigned long lasttime = 0;
+	*SampleTime10ms = (millis() - lasttime) * 0.001;
+	lasttime = millis();
+}
+
 float convertRawGyro(int gRaw)
  {
 	// since we are using 250 degrees/seconds range
 	// -250 maps to a raw value of -32768
 	// +250 maps to a raw value of 32767
 
-	float g = (gRaw * 2000.0f) / 32768.0;
+	float g = (gRaw * 500.0f) / 32768.0;
 	return g;
 }
-
 
 float Pi2pi(float angle)
 {
@@ -860,7 +874,6 @@ void serialEvent1(){
 		gpsReadDone = true;
 	}
 	if(gpsReadDone){
-	GPSFIX();
-	DMPupdate(&rpyAngle.x,&rpyAngle.y,&rpyAngle.z,&update_data);
+		GPSFIX();
 	}
 }
