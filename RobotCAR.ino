@@ -46,8 +46,8 @@ NeoGPS::Location_t cp1(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365680540L,1399956200L);
-NeoGPS::Location_t cp2(365679740L,1399957880L);
+NeoGPS::Location_t cp1(365679660L,1399957730L);
+NeoGPS::Location_t cp2(365680650L,1399956810L);
 #elif defined Home
 NeoGPS::Location_t cp1(385071520L,1403969840L);
 NeoGPS::Location_t cp2(385071540L,1403970570L);
@@ -171,8 +171,12 @@ void Task2(void)
 	}
  }
 
-
-float aveAngle(float in,int n)//n回平均計算(n回計算後に初めて出力)
+/************************************************************************
+ * FUNCTION : 角度のn回平均計算
+ * INPUT    : 角度(rad),回数
+ * OUTPUT   : n回平均角度(rad)
+ ***********************************************************************/
+float aveAngle(float in,int n)
 {
 	static int i;
 	static float bufx,bufy;
@@ -188,30 +192,6 @@ float aveAngle(float in,int n)//n回平均計算(n回計算後に初めて出力
 		bufy = 0;
 		i = 0;
 	};
-	return ave;
-}
-
-float ave5(float in)//5回平均計算
-{
-	static float buf[5];
-	float ave;
-	for(int8_t i=0;i<5;i++){
-		i > 0 ? buf[i] = buf[i-1] : buf[0] = in;
-		ave += buf[i];
-	}
-	ave *= 0.2;
-	return ave;
-}
-
-float ave50(float in)//50回平均計算(50回計算後に初めて出力)
-{
-	static float buf[50];
-	float ave;
-		for(int8_t i=0;i<50;i++){
-			i > 0 ? buf[i] = buf[i-1] : buf[0] = in;
-			ave += buf[i];
-		}
-	buf[49] != 0 ? ave *= 0.02 : ave = 0;
 	return ave;
 }
 
@@ -332,9 +312,10 @@ void IntegratedChassisControl(void)
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.5f);//110;
+	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.5f);
 				ClothoidControl();
 				break;
+	//デバッグ用
 	case 0xf:	
 				if(Serial.available()){
 					switch(Serial.read()){
@@ -575,92 +556,45 @@ int8_t StateManager()
  ***********************************************************************/
  float StrControlPID(float currentYawAngle,float targetYawAngle)
  {
-	float KP = 30,TI = 0.105,TD = 0.02625,bias = strPwmOffset;
+	float kP = 30,tI = 0.105,tD = 0.02625,bias = strPwmOffset;
 	static float error_prior = 0,integral = 0;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
 	error = targetYawAngle - currentYawAngle;
 	integral += (error * sampleTime);
 	derivative = (error - error_prior)/sampleTime;
-	output = KP * (error + integral / TI + TD * derivative) + bias;
+	output = kP * (error + integral / tI + tD * derivative) + bias;
 
 	error_prior = error;
 
 	return output;
  }
 
-/************************************************************************
- * FUNCTION : 操舵制御指示値演算(ヨー角フィードバック)
- * INPUT    : CPまでの目標角度、ヨーレート、
- *            強制操舵方向指定(0:通常操舵、1:左旋回、-1:右旋回)
- * OUTPUT   : 操舵制御指示値(サーボ角)
- ***********************************************************************/
- float StrControlPIDAng(int8_t mode, float value, float yawAngle,float targetYawAngle)
- {
-	float sampleTime = sampleTimems * 0.001;
- #ifdef CC01
-  float kp = 180,ti = 0.5 * 0.42 ,td = 0.125 * 0.42,diff;
- #else
- 	float kp = 2.125,ti = 0.4 ,td = 0.1,diff;
- #endif
- 	static float err[3],lastyawAngle,lastvalue;
- 	static int8_t lastMode;
-
- 	if(mode != lastMode){
- 		err[0]=0;err[1]=0;err[2]=0;
- 		lastyawAngle = 0;
- 	}
- 	!value ? value = 90 : 0;
-	err[2] = err[1];
-	err[1] = err[0];
- 	err[0] = (targetYawAngle - yawAngle);
- 	diff = kp * (err[0] - err[1] + err[0] * sampleTime / ti + td / sampleTime * (err[0]-2*err[1]+err[2]));
-
-  lastvalue ? value =  lastvalue + diff : 0;
-
- 	value = LimitValue(value,120,60);
-	lastvalue = value;
- 	lastyawAngle = yawAngle;
- 	lastMode = mode;
- #if 0
- 	//#ifdef DEBUG
- 	Serial.print("Time,");Serial.print(millis());
- 	Serial.print(",err:,"); Serial.print(err[0]); Serial.print(",YawAng:,"); Serial.print(yawAngle);
-	Serial.print(",Diff:,"); Serial.print(diff);
- 	Serial.print(",value:,"); Serial.println(value);
- 	//#endif
- #endif
-
- return value;
- }
 
 /************************************************************************
  * FUNCTION : 速度コントロール
  * INPUT    :
  *
- * OUTPUT   : 操舵制御指示値(サーボ角)
+ * OUTPUT   : モータ制御指示値
  ***********************************************************************/
 float SpdControlPID(float currentSpeed,float targetSpeed)
 {
-	float KP = 8,TI = 0.5,TD = 0.125,bias = 90;
+	float kP = 8,tI = 0.5,tD = 0.125,bias = 90;
 	static float error_prior = 0,integral = 0;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
 	error = targetSpeed - currentSpeed;
 	integral += (error * sampleTime);
 	derivative = (error - error_prior)/sampleTime;
-	output = KP * (error + integral / TI + TD * derivative) + bias;
-	//Serial.print("outputraw:");Serial.println(output);
+	output = kP * (error + integral / tI + tD * derivative) + bias;
 	output = LimitValue(output,80,180);
 	error_prior = error;
-	//Serial.print("Time:");Serial.print(millis());Serial.print("Speed:");Serial.print(gpsSpeedmps);
-	//Serial.print("error:");Serial.print(error);Serial.print("output:");Serial.println(output);
 
 	return output;
 }
 
 /************************************************************************
- * FUNCTION : コース設定
+ * FUNCTION : クロソイド用変数取得
  * INPUT    :
  * OUTPUT   :
  ***********************************************************************/
@@ -785,10 +719,13 @@ void CalcClothoidCurvatureRate(float l, float psi, float phi0,float phi1, float 
 	*odoEnd = odo[n-1];
 }
 
+/************************************************************************
+ * FUNCTION : クロソイド軌跡演算結果からヨーレート計算
+ * INPUT    : 速度v,現在距離odo,曲率距離比cvRate,距離ゼロ時曲率
+ * OUTPUT   : ヨーレート
+ ***********************************************************************/
 float calcYawRt(float v,float odo,float cvRate,float cvOffset,float odoend)
 {
-    /*入力    :  速度v,現在距離odo,曲率距離比cvRate,距離ゼロ時曲率*/
-    /*出力    :  ヨーレート*/
     float yawRt;
     if(odo >= 0 && odo < odoend){yawRt = v * ((odo * cvRate) + cvOffset);}
     else if(odo >= odoend){yawRt = v * ((odoend * cvRate) + cvOffset);}
@@ -796,10 +733,13 @@ float calcYawRt(float v,float odo,float cvRate,float cvOffset,float odoend)
     return yawRt;
 }
 
+/************************************************************************
+ * FUNCTION : クロソイド軌跡演算結果から操舵PWM指示値計算
+ * INPUT    : 速度v,現在距離odo,曲率距離比cvRate,距離ゼロ時曲率
+ * OUTPUT   : 操舵PWM指示値
+ ***********************************************************************/
 float calcStrpwm(float odo,float cvRate,float cvOffset,float odoend)
 {
-    /*入力    :  速度v,現在距離odo,曲率距離比cvRate,距離ゼロ時曲率*/
-    /*出力    :  ヨーレート*/
 	float pwm;
     if(odo >= 0 && odo < odoend){pwm = kStrAngle2Pwm * (wheelbase * ((odo * cvRate) + cvOffset)) + strPwmOffset;}
     else if(odo >= odoend){pwm = kStrAngle2Pwm * (wheelbase * ((odoend * cvRate) + cvOffset)) + strPwmOffset;}
@@ -807,37 +747,44 @@ float calcStrpwm(float odo,float cvRate,float cvOffset,float odoend)
     return pwm;
 }
 
+/************************************************************************
+ * FUNCTION : IMU加速度生値->物理値変換
+ * INPUT    : IMU加速度生値
+ * OUTPUT   : 加速度(m/s^2)
+ ***********************************************************************/
 float convertRawAcceleration(int aRaw)
 {
-   // since we are using 2G(19.6 m/s^2) range
-   // -2g maps to a raw value of -32768
-   // +2g maps to a raw value of 32767
-
    float a = (aRaw * 2.0 * 9.80665) / 32768.0;
    return a;
 }
 
-float SelYawRt(float yawRtIMU, float fStrPWM, float vGPS, float puPWM)
+/************************************************************************
+ * FUNCTION : IMU角速度生値->物理値変換
+ * INPUT    : IMU角速度生値
+ * OUTPUT   : 角速度(deg/s)
+ ***********************************************************************/
+float convertRawGyro(int gRaw)
 {
-    if(vGPS > 1.0f && (puPWM > 100 || puPWM < 80)){
-        if((fStrPWM-strPwmOffset)){//ゼロ割防止
-        	return vGPS / (0.266 / ((fStrPWM - strPwmOffset) / kStrAngle2Pwm));
-        }
-        else{//ゼロ割防止
-        	return 0;
-        }
-    }
-    else{
-        return yawRtIMU;
-    }
+   float g = (gRaw * 500.0f) / 32768.0;
+   return g;
 }
 
+/************************************************************************
+ * FUNCTION : IMUによるGPS方位情報補間
+ * INPUT    : 
+ * OUTPUT   : 
+ ***********************************************************************/
 void HeadingUpdateIMU(float *heading,float *relHeading, float yawRtIMU,float SampleTime10ms)
 {
 	*heading += yawRtIMU * SampleTime10ms;
 	*relHeading += yawRtIMU * SampleTime10ms;
 }
 
+/************************************************************************
+ * FUNCTION : 10msサンプリングタイム取得
+ * INPUT    : 
+ * OUTPUT   : 
+ ***********************************************************************/
 void GetSampleTime10ms(float *SampleTime10ms)
 {
 	static unsigned long lasttime = 0;
@@ -845,16 +792,12 @@ void GetSampleTime10ms(float *SampleTime10ms)
 	lasttime = millis();
 }
 
-float convertRawGyro(int gRaw)
- {
-	// since we are using 250 degrees/seconds range
-	// -250 maps to a raw value of -32768
-	// +250 maps to a raw value of 32767
 
-	float g = (gRaw * 500.0f) / 32768.0;
-	return g;
-}
-
+/************************************************************************
+ * FUNCTION : 角度を-piからpiの範囲に納める
+ * INPUT    : 
+ * OUTPUT   : 
+ ***********************************************************************/
 float Pi2pi(float angle)
 {
     while(angle >= M_PI) {angle -= M_PI * 2;}
@@ -862,11 +805,21 @@ float Pi2pi(float angle)
     return angle;
 }
 
+/************************************************************************
+ * FUNCTION : メインループ関数
+ * INPUT    : 
+ * OUTPUT   : 
+ ***********************************************************************/
 void loop()
 {
 	runner.execute();
 }
 
+/************************************************************************
+ * FUNCTION : シリアルポート1受信割り込み処理
+ * INPUT    : 
+ * OUTPUT   : 
+ ***********************************************************************/
 void serialEvent1(){
 	bool gpsReadDone = false;
 	while (gps.available(Serial1)) {
