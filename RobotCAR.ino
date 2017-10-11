@@ -359,7 +359,7 @@ void ClothoidControl(void)
 	uint8_t f_Timer = 0;
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
-	f_Timer = TimerSec(165); //タイマ作動
+	f_Timer = TimerSec(165); //カウントダウンタイマ作動
 	if(controlMode==0){
 		GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
