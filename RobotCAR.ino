@@ -46,8 +46,8 @@ NeoGPS::Location_t cp1(365760193L,1400160370L);
 NeoGPS::Location_t cp1(365833090L,1400104240L);
 NeoGPS::Location_t cp2(365832140L,1400104870L);
 #elif defined HappiTow
-NeoGPS::Location_t cp1(365679660L,1399957730L);
-NeoGPS::Location_t cp2(365680650L,1399956810L);
+NeoGPS::Location_t cp1(365680770L,1399958340L);
+NeoGPS::Location_t cp2(365679700L,1399958340L);
 #elif defined Home
 NeoGPS::Location_t cp1(385071520L,1403969840L);
 NeoGPS::Location_t cp2(385071540L,1403970570L);
@@ -315,7 +315,9 @@ void IntegratedChassisControl(void)
 	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.5f);
 				ClothoidControl();
 				break;
-	//デバッグ用
+	case 4:     if(gpsSpeedmps > 0.5f){puPwm = SpdControlPID(gpsSpeedmps,0.0f);}
+				else{puPwm = 90;}
+				break;
 	case 0xf:	
 				if(Serial.available()){
 					switch(Serial.read()){
@@ -331,6 +333,7 @@ void IntegratedChassisControl(void)
 				}
 				Serial.print("Strpwm,");Serial.print(fStrPwm);Serial.print(",");
 				Serial.print("yawAng,");Serial.print(relYawAngle * 180/M_PI);Serial.print(",");
+				Serial.print("Heading, ");Serial.print(heading);Serial.print(",");
 				Serial.print("x,");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print(",");
 				Serial.print("y,");Serial.print(rfromCenter * sin(bearfromCenter));Serial.print(",");
 				Serial.print("yawRate,");Serial.print(rpyRate.z);Serial.print(",");
@@ -353,8 +356,10 @@ void ClothoidControl(void)
 	static float cvRate,cvOffset,odoEnd,odo;
 	float yawRt;
 	float l,psi;
+	uint8_t f_Timer = 0;
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
+	f_Timer = TimerSec(165); //タイマ作動
 	if(controlMode==0){
 		GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
@@ -412,6 +417,9 @@ void ClothoidControl(void)
 			odo = 0;
 			controlMode = 4;
 			}
+		else if(f_Timer && odo > odoEnd-2){
+			mode = 4;
+		}
 	}
 	else if(controlMode==4){//cp2へ
 		//yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
@@ -466,6 +474,9 @@ void ClothoidControl(void)
 			odo = 0;
 			controlMode = 1;
 		}
+		else if(f_Timer && odo > odoEnd-2){
+			mode = 4;
+		}
 	}
 	//Serial.print("odo:,");Serial.print(odo);Serial.print("TgtYaw:,");Serial.println(yawRt);
 }
@@ -479,7 +490,7 @@ void ClothoidControl(void)
 int8_t StateManager()
 {
 	static unsigned long startTime = 0;
-	if(rfromCenter < 20) {			//コース中央から半径20m内
+	if(rfromCenter < 30) {			//コース中央から半径20m内
 		if(mode <= 0){
 			Serial.print("yawAng, ");Serial.print(rpyAngle.z);Serial.print(",");Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print(",");
 			Serial.print("Heading, ");Serial.print(heading);Serial.print(",");
@@ -527,12 +538,10 @@ int8_t StateManager()
 			}
 		}
 		else if(mode == 4){
-			 puPwm = 90;
 			 Serial.print("RelYaw,");Serial.print(relYawAngle);Serial.print(",");
 			 Serial.print("yawRt,");Serial.print(rpyRate.z);Serial.print(",");
 			 Serial.print("x,");Serial.print(rfromCenter * cos(bearfromCenter));Serial.print(",");
 			 Serial.print("y,");Serial.print(rfromCenter * sin(bearfromCenter));Serial.print(",");		
-			 Serial.println("Out of Course");
 		}
 	}
 	else{//コース外
@@ -778,6 +787,25 @@ void HeadingUpdateIMU(float *heading,float *relHeading, float yawRtIMU,float Sam
 {
 	*heading += yawRtIMU * SampleTime10ms;
 	*relHeading += yawRtIMU * SampleTime10ms;
+}
+
+/************************************************************************
+ * FUNCTION : 指定秒タイマ
+ * INPUT    : タイマ時間(s)
+ * OUTPUT   : タイマフラグ 
+ ***********************************************************************/
+uint8_t TimerSec(unsigned int timerTime)
+{
+	static unsigned int startTime = millis() * 0.001;
+	unsigned int  timeNow = millis() * 0.001;
+	int countDownTime = timerTime - (timeNow - startTime);
+	if(countDownTime < 0){
+		return 1;
+	}
+	else{
+		Serial.print("Timer : ");Serial.print(countDownTime);
+		return 0;
+	}
 }
 
 /************************************************************************
