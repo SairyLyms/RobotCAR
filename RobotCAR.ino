@@ -323,8 +323,7 @@ void IntegratedChassisControl(void)
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
 				break;
-	case 3:		puPwm = SpdControlPID(gpsSpeedmps,2.0f);
-				ClothoidControl();
+	case 3:		ClothoidControl();
 				break;
 	case 4:     if(gpsSpeedmps > 0.5f){puPwm = SpdControlPID(gpsSpeedmps,0.0f);}
 				else{
@@ -372,13 +371,17 @@ void ClothoidControl(void)
 	static float cvRate,cvOffset,odoEnd,odo;
 	float yawRt;
 	float l,psi;
-	uint8_t f_Timer = 0;
+	unsigned int timeFromStart = CountUpTimeSec();
+	uint8_t timeLimit = 180;
+	uint8_t timetoSlowMode = 30,timetoStop = 15; 	//低速走行遷移時間,停止準備時間 (制限時間より減算)
+	float normSpeed = 2.0f , slowSpeed = 1.0f;		//通常走行速度,低速走行速度
+	static float targetSpeed = 0.0f;
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
-	f_Timer = TimerSec(165); //カウントダウンタイマ作動
 	if(controlMode==0){
 		GetLenAndPsi(rfromCenter * cos(bearfromCenter),rfromCenter * sin(bearfromCenter),lengthCenterToWaypoint,-r,&l,&psi);
 		CalcClothoidCurvatureRate(l,psi,relYawAngle,0,&cvRate,&cvOffset,&odoEnd,5);
+		targetSpeed = normSpeed;
 		controlMode = 1;
 	}
 	else if(controlMode==1){//cp1へ
@@ -435,8 +438,11 @@ void ClothoidControl(void)
 			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);
 			odo = 0;
 			controlMode = 4;
-			}
-		else if(f_Timer && odo > odoEnd-2){
+		}
+		if(timeFromStart > (timeLimit - timetoSlowMode)){
+			targetSpeed = slowSpeed;
+		}
+		if(timeFromStart > (timeLimit - timetoStop) && odo > odoEnd-2){
 			mode = 4;
 		}
 	}
@@ -495,10 +501,14 @@ void ClothoidControl(void)
 			odo = 0;
 			controlMode = 1;
 		}
-		else if(f_Timer && odo > odoEnd-2){
+		if(timeFromStart > (timeLimit - timetoSlowMode)){
+			targetSpeed = slowSpeed;
+		}
+		if(timeFromStart > (timeLimit - timetoStop) && odo > odoEnd-2){
 			mode = 4;
 		}
 	}
+	puPwm = SpdControlPID(gpsSpeedmps,targetSpeed);		//車速PID制御
 	//Serial.print("odo:,");Serial.print(odo);Serial.print("TgtYaw:,");Serial.println(yawRt);
 }
 
@@ -608,8 +618,8 @@ int8_t StateManager()
  ***********************************************************************/
 float SpdControlPID(float currentSpeed,float targetSpeed)
 {
-	float kP = 8,tI = 0.5,tD = 0.125,bias = 90;
-	static float error_prior = 0,integral = 0;
+	float kP = 8,tI = 0.5,tD = 0.125;
+	static float error_prior = 0,integral = 0,bias = puPwm;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
 	error = targetSpeed - currentSpeed;
@@ -826,6 +836,20 @@ uint8_t TimerSec(unsigned int timerTime)
 		Serial.print("Timer, ");Serial.println(countDownTime);
 		return 0;
 	}
+}
+
+/************************************************************************
+ * FUNCTION : 秒数カウンタ
+ * INPUT    : 
+ * OUTPUT   : 本関数初回コールからの時間(s) 
+ ***********************************************************************/
+unsigned int CountUpTimeSec(void)
+{
+	static unsigned int startTime = millis() * 0.001;
+	unsigned int  timeNow = millis() * 0.001 - startTime;
+
+	Serial.print("Time, ");Serial.println(timeNow);
+	return timeNow;
 }
 
 /************************************************************************
