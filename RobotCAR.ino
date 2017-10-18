@@ -26,8 +26,8 @@ float wheelbase = 0.266;
 float kStrAngle2Pwm = 191.2;
 float strPwmOffset = 87.7;
 int8_t n = 5;
-float lengthCenterToWaypoint = 10.0f;
-float r = 5.0f;
+float lengthCenterToWaypoint = 7.0f;
+float r = 3.0f;
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
@@ -35,9 +35,9 @@ float r = 5.0f;
 //#define DEBUG_GPS
 //#define DEBUG
 //#define TechCom											/*テストコース設定*/
-#define Ground
+//#define Ground
 //#define Garden
-//#define HappiTow
+#define HappiTow
 //#define Home
 #ifdef TechCom
 NeoGPS::Location_t cp0(365759506L,1400158539L);
@@ -83,8 +83,6 @@ int8_t mode,imuCalibMode;
 // ================================================================
 void Task1(void);
 void Task2(void);
-void Task5(void);
-void Task10(void);
 // ================================================================
 // ===               		Tasks				                ===
 // ================================================================
@@ -118,6 +116,9 @@ void setup()
 
 	FStr.attach(9,1000,2000);
 	PowUnit.attach(8,1000,2000);
+
+	pinMode(2, OUTPUT);	//ウインカー左
+	pinMode(3, OUTPUT);	//ウインカー右
 
 	locCenter.lat(5*(0.1 * cp1.lat() + 0.1 * cp2.lat()));
 	locCenter.lon(5*(0.1 * cp1.lon() + 0.1 * cp2.lon()));
@@ -229,12 +230,7 @@ void IMUupdate(void)
 		rpyRate.y = Pi2pi(rpyAngle.y - lastRpyAngle.y) / SampleTime10ms;
 		rpyRate.z = Pi2pi(rpyAngle.z - lastRpyAngle.z) / SampleTime10ms;
 	}
-#if 0
 
-	rpyRate.x = gfx * M_PI /180.0f;
-	rpyRate.y = gfy * M_PI /180.0f;
-	rpyRate.z = gfz * M_PI /180.0f;
-	#endif	
 	lastRpyAngle = rpyAngle;
 
 	acc.x = afx;
@@ -331,7 +327,10 @@ void IntegratedChassisControl(void)
 				ClothoidControl();
 				break;
 	case 4:     if(gpsSpeedmps > 0.5f){puPwm = SpdControlPID(gpsSpeedmps,0.0f);}
-				else{puPwm = 90;}
+				else{
+					puPwm = 90;
+					BlinkTurnSignal();
+				}
 				break;
 	case 0xf:	
 				if(Serial.available()){
@@ -512,7 +511,7 @@ void ClothoidControl(void)
 int8_t StateManager()
 {
 	static unsigned long startTime = 0;
-	if(rfromCenter < 30) {			//コース中央から半径20m内
+	if(rfromCenter < 20) {			//コース中央から半径20m内
 		if(mode <= 0){
 			Serial.print("yawAng, ");Serial.print(rpyAngle.z);Serial.print(",");Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print(",");
 			Serial.print("Heading, ");Serial.print(heading);Serial.print(",");
@@ -826,6 +825,25 @@ uint8_t TimerSec(unsigned int timerTime)
 	else{
 		Serial.print("Timer, ");Serial.println(countDownTime);
 		return 0;
+	}
+}
+
+/************************************************************************
+ * FUNCTION : ウインカー点滅
+ * INPUT    :
+ * OUTPUT   : 
+ ***********************************************************************/
+void BlinkTurnSignal(void)
+{
+	static uint8_t count10ms = 0, blinkMode = 0;
+	if(count10ms > 45){
+		digitalWrite(2, blinkMode);
+		digitalWrite(3, blinkMode);
+		blinkMode = !blinkMode;
+		count10ms = 0;
+	}
+	else{
+		count10ms++;
 	}
 }
 
