@@ -24,7 +24,7 @@
 /************************************************************************/
 float wheelbase = 0.266;
 float kStrAngle2Pwm = 191.2;
-float strPwmOffset = 87.7;
+float strPwmOffset = 88;
 int8_t n = 5;
 float lengthCenterToWaypoint = 7.0f;
 float r = 3.0f;
@@ -336,11 +336,11 @@ void IntegratedChassisControl(void)
 				if(Serial.available()){
 					switch(Serial.read()){
 						case '0'	: fStrPwm = 90;break;
-						case '1'	: fStrPwm -= 2;break; //再度IMU補正
-						case '2'	: fStrPwm += 2;break; //走行開始
-						case '3'	: fStrPwm = 70;break; //CW
-						case '4'	: fStrPwm = 104;break; //CCW
-						case 's'	: puPwm = 110;break; //走行開始
+						case '1'	: fStrPwm -= 2;break;
+						case '2'	: fStrPwm += 2;break;
+						case '3'	: fStrPwm = 70;break; 	//CW
+						case '4'	: fStrPwm = 104;break; 	//CCW
+						case 's'	: puPwm = 110;break; 	//走行開始
 						case 'r'	: headingOffstIMU = -rpyAngle.z;break;
 						default		: puPwm = 90;break;	
 					}
