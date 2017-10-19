@@ -366,7 +366,6 @@ void IntegratedChassisControl(void)
  ***********************************************************************/
 void ClothoidControl(void)
 {	
-	static uint8_t timerFF2FB = 0;
 	static int controlMode = 0;
 	static float cvRate,cvOffset,odoEnd,odo;
 	float yawRt;
@@ -401,14 +400,8 @@ void ClothoidControl(void)
 		}
 	}
 	else if(controlMode==2){//cp1定常円
-		if(timerFF2FB < 25){
-			fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);
-			timerFF2FB++;
-		}
-		else{
-			yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-			fStrPwm  = StrControlPID(rpyRate.z,yawRt);
-		}		
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm  = StrControlPIDFF(rpyRate.z,yawRt,calcStrpwm(odo,cvRate,cvOffset,odoEnd));
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
 			Serial.println("Control2 done!! Next3:,");//制御終了して次の制御へ
@@ -419,7 +412,6 @@ void ClothoidControl(void)
 			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
 			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
 			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);
-			timerFF2FB = 0;							
 			odo = 0;
 			controlMode = 3;
 		}
@@ -463,14 +455,8 @@ void ClothoidControl(void)
 		}
 	}
 	else if(controlMode==5){//cp2定常円
-		if(timerFF2FB < 25){
-			fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);
-			timerFF2FB++;
-		}
-		else{
-			yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
-			fStrPwm  = StrControlPID(rpyRate.z,yawRt);
-		}		
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		fStrPwm  = StrControlPIDFF(rpyRate.z,yawRt,calcStrpwm(odo,cvRate,cvOffset,odoEnd));	
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
 			Serial.println("Control5 done!! Next6:,");//制御終了して次の制御へ
@@ -481,7 +467,6 @@ void ClothoidControl(void)
 			Serial.print("len:");Serial.print(l);Serial.print("psi:");Serial.print(psi);
 			Serial.print("RelYaw:");Serial.print(relYawAngle);Serial.print("cvRate:");Serial.print(cvRate);
 			Serial.print("cvOffset:");Serial.print(cvOffset);Serial.print("odoEnd:");Serial.println(odoEnd);
-			timerFF2FB = 0;			
 			odo = 0;
 			controlMode = 6;
 		}
@@ -595,8 +580,8 @@ int8_t StateManager()
  ***********************************************************************/
  float StrControlPID(float currentYawAngle,float targetYawAngle)
  {
-	float kP = 30,tI = 0.105,tD = 0.02625;
-	static float error_prior = 0,integral = 0,bias = fStrPwm;
+	float kP = 30,tI = 0.105,tD = 0.02625,bias = strPwmOffset;;
+	static float error_prior = 0,integral = 0;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
 	error = targetYawAngle - currentYawAngle;
@@ -609,6 +594,16 @@ int8_t StateManager()
 	return output;
  }
 
+ /************************************************************************
+ * FUNCTION : 操舵制御指示値演算(ヨーレートフィードバック)
+ * INPUT    : CPまでの目標ヨーレート、現在ヨーレート
+ * OUTPUT   : 操舵制御指示値(サーボ角)
+ ***********************************************************************/
+float StrControlPIDFF(float currentYawAngle,float targetYawAngle,float pwmFF)
+{
+   return StrControlPID(currentYawAngle,targetYawAngle) + pwmFF;
+}
+
 
 /************************************************************************
  * FUNCTION : 速度コントロール
@@ -618,8 +613,8 @@ int8_t StateManager()
  ***********************************************************************/
 float SpdControlPID(float currentSpeed,float targetSpeed)
 {
-	float kP = 8,tI = 0.5,tD = 0.125;
-	static float error_prior = 0,integral = 0,bias = puPwm;
+	float kP = 8,tI = 0.5,tD = 0.125,bias = 90;
+	static float error_prior = 0,integral = 0;
 	float error,derivative,output,sampleTime = 10 * 0.001;
 
 	error = targetSpeed - currentSpeed;
