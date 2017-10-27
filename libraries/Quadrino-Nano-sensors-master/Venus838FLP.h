@@ -20,7 +20,7 @@
 // The Venus GPS chip will send location updates at this rate (in Hz)
 // Venus6 supports 1, 5, 10, 20, 40
 // Venus8 supports Venus6 rates plus 50
-#define VENUS_UPDATE_RATE  40
+#define VENUS_UPDATE_RATE  50
 
 
 /* GPS protocol 

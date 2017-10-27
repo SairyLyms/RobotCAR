@@ -24,10 +24,10 @@
 /************************************************************************/
 float wheelbase = 0.266;
 float kStrAngle2Pwm = 191.2;
-float strPwmOffset = 88;
+float strPwmOffset = 88.33321292775663;
 int8_t n = 5;
-float lengthCenterToWaypoint = 7.0f;
-float r = 3.0f;
+float lengthCenterToWaypoint = 10.0f;
+float r = 3.5f;
 // ================================================================
 // ===                       Course Data                        ===
 // ================================================================
@@ -37,8 +37,9 @@ float r = 3.0f;
 //#define TechCom											/*テストコース設定*/
 //#define Ground
 //#define Garden
-#define HappiTow
+//#define HappiTow
 //#define Home
+#define Course
 #ifdef TechCom
 NeoGPS::Location_t cp0(365759506L,1400158539L);
 NeoGPS::Location_t cp1(365760193L,1400160370L);
@@ -54,6 +55,9 @@ NeoGPS::Location_t cp2(385071750L,1403969110L);
 #elif defined Ground
 NeoGPS::Location_t cp1(385165360L,1403963620L);
 NeoGPS::Location_t cp2(385165590L,1403965910L);
+#elif defined Course								/*本番コース*/
+NeoGPS::Location_t cp1(382755880L,1407542720L);
+NeoGPS::Location_t cp2(382754320L,1407542720L);
 #endif
 NeoGPS::Location_t locCenter;
 Madgwick AHRS;
@@ -101,6 +105,7 @@ void SetWaypoint(void)
 
 void setup()
 {
+	Serial.flush();
 	Wire.begin();
 	Wire.setClock(400000L);
 	Serial.begin(115200);
@@ -123,7 +128,6 @@ void setup()
 	locCenter.lat(5*(0.1 * cp1.lat() + 0.1 * cp2.lat()));
 	locCenter.lon(5*(0.1 * cp1.lon() + 0.1 * cp2.lon()));
 
-	Serial.flush();
 	SetWaypoint(); //旋回半径設定
 	runner.startNow();
 	Initwait();
@@ -318,7 +322,7 @@ void IntegratedChassisControl(void)
 				Serial.print("yawRate,");Serial.print(rpyRate.z);Serial.print(",");
 				Serial.print("Strpwm,");Serial.print(fStrPwm);Serial.print(",");
 				Serial.print("strCenter,");Serial.print(strCenterPWM);Serial.println(",");
-				puPwm = 107;
+				puPwm = 115;
 				break;
 	case 2:		fStrPwm = 90;
 				puPwm = 90;
@@ -331,6 +335,7 @@ void IntegratedChassisControl(void)
 					BlinkTurnSignal();
 				}
 				break;
+	case 5:		BlinkTurnSignal();break;
 	case 0xf:	
 				if(Serial.available()){
 					switch(Serial.read()){
@@ -341,6 +346,7 @@ void IntegratedChassisControl(void)
 						case '4'	: fStrPwm = 104;break; 	//CCW
 						case 's'	: puPwm = 110;break; 	//走行開始
 						case 'r'	: headingOffstIMU = -rpyAngle.z;break;
+						case 'w'	: mode = 5;break; 	//ハザード点滅
 						default		: puPwm = 90;break;	
 					}
 				}
@@ -371,9 +377,9 @@ void ClothoidControl(void)
 	float yawRt;
 	float l,psi;
 	unsigned int timeFromStart = CountUpTimeSec();
-	uint8_t timeLimit = 180;
+	uint8_t timeLimit = 90;
 	uint8_t timetoSlowMode = 30,timetoStop = 15; 	//低速走行遷移時間,停止準備時間 (制限時間より減算)
-	float normSpeed = 2.0f , slowSpeed = 1.0f;		//通常走行速度,低速走行速度
+	float normSpeed = 6.0f , slowSpeed = 2.0f;		//通常走行速度,低速走行速度
 	static float targetSpeed = 0.0f;
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
@@ -506,7 +512,7 @@ void ClothoidControl(void)
 int8_t StateManager()
 {
 	static unsigned long startTime = 0;
-	if(rfromCenter < 20) {			//コース中央から半径20m内
+	if(rfromCenter < 100) {			//コース中央から半径20m内
 		if(mode <= 0){
 			Serial.print("yawAng, ");Serial.print(rpyAngle.z);Serial.print(",");Serial.print("yawRt, ");Serial.print(rpyRate.z);Serial.print(",");
 			Serial.print("Heading, ");Serial.print(heading);Serial.print(",");
