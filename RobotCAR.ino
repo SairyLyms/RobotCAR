@@ -379,8 +379,13 @@ void ClothoidControl(void)
 	unsigned int timeFromStart = CountUpTimeSec();
 	uint8_t timeLimit = 90;
 	uint8_t timetoSlowMode = 30,timetoStop = 15; 	//低速走行遷移時間,停止準備時間 (制限時間より減算)
+<<<<<<< HEAD
 	float normSpeed = 6.0f , slowSpeed = 2.0f;		//通常走行速度,低速走行速度
 	static float targetSpeed = 0.0f;
+=======
+	float normSpeed = 2.0f , slowSpeed = 1.0f;		//通常走行速度,低速走行速度
+	static float targetSpeed = 0.0f,targetStrPWM = strPwmOffset;
+>>>>>>> fdc0ecad3818f4f43c88d2170af416b6cecac5b6
 	//Serial.print("Current Mode :");Serial.print(controlMode);
 	//Serial.print("psi:,");Serial.print(psi);
 	if(controlMode==0){
@@ -406,8 +411,20 @@ void ClothoidControl(void)
 		}
 	}
 	else if(controlMode==2){//cp1定常円
+<<<<<<< HEAD
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
 		fStrPwm  = StrControlPIDFF(rpyRate.z,yawRt,calcStrpwm(odo,cvRate,cvOffset,odoEnd));
+=======
+		if(timerFF2FB < 25){
+			fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);
+			timerFF2FB++;
+		}
+		else{
+			fStrPwm  = targetStrPWM;
+		}
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		targetStrPWM = StrControlPID(rpyRate.z,yawRt);
+>>>>>>> fdc0ecad3818f4f43c88d2170af416b6cecac5b6
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
 			Serial.println("Control2 done!! Next3:,");//制御終了して次の制御へ
@@ -461,8 +478,20 @@ void ClothoidControl(void)
 		}
 	}
 	else if(controlMode==5){//cp2定常円
+<<<<<<< HEAD
 		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
 		fStrPwm  = StrControlPIDFF(rpyRate.z,yawRt,calcStrpwm(odo,cvRate,cvOffset,odoEnd));	
+=======
+		if(timerFF2FB < 25){
+			fStrPwm  = calcStrpwm(odo,cvRate,cvOffset,odoEnd);
+			timerFF2FB++;
+		}
+		else{
+			fStrPwm  = targetStrPWM;
+		}
+		yawRt = calcYawRt(gpsSpeedmps,odo,cvRate,cvOffset,odoEnd);
+		targetStrPWM = StrControlPID(rpyRate.z,yawRt);		
+>>>>>>> fdc0ecad3818f4f43c88d2170af416b6cecac5b6
 		odo += gpsSpeedmps * sampleTimems * 0.001;		
 		if(odo>odoEnd){
 			Serial.println("Control5 done!! Next6:,");//制御終了して次の制御へ
