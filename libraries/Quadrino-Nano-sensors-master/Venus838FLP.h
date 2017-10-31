@@ -203,7 +203,7 @@ typedef unsigned char byte;
 #define VENUS_INT16(h,l)   ((h<<8)|l)
 
 typedef struct {
-    int32_t x;
+  int32_t x;
   int32_t y;
   int32_t z;
 } xyz32_t;
